@@ -51,6 +51,10 @@ if os.path.exists(archivo_base):
 else:
     base_guardada = pd.DataFrame()
 
+# limpiar base
+base_guardada = base_guardada.replace(r'^\s*$', None, regex=True)
+base_guardada = base_guardada.fillna("")
+
 for col in ["id_cuenta","producto","tipo","bracket"]:
     if col not in base_guardada.columns:
         base_guardada[col] = ""
@@ -81,6 +85,10 @@ if archivo is not None:
         df_nuevo = pd.read_excel(archivo)
 
     df_nuevo.columns = df_nuevo.columns.str.strip().str.lower()
+
+    # limpiar archivo nuevo
+    df_nuevo = df_nuevo.replace(r'^\s*$', None, regex=True)
+    df_nuevo = df_nuevo.fillna("")
 
     for col in ["id_cuenta","producto","tipo","bracket"]:
         if col not in df_nuevo.columns:
@@ -139,6 +147,10 @@ if archivo is not None:
 
 df = base_guardada.copy()
 
+# limpiar visual
+df = df.replace(r'^\s*$', None, regex=True)
+df = df.fillna("")
+
 # -----------------------------
 # SIDEBAR + FILTROS
 # -----------------------------
@@ -191,6 +203,9 @@ def mostrar_tabla(data):
     if data.empty:
         st.warning("No hay datos disponibles")
         return
+
+    data = data.replace(r'^\s*$', None, regex=True)
+    data = data.fillna("")
 
     editado = st.data_editor(data, use_container_width=True, num_rows="dynamic")
 
