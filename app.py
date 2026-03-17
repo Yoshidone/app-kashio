@@ -36,14 +36,7 @@ if "auth" not in st.session_state or not st.session_state["auth"]:
     st.stop()
 
 # -----------------------------
-# CONFIG
-# -----------------------------
-
-archivo_base = "base_tarifas_guardada.xlsx"
-archivo_historial = "historial_tarifas.xlsx"
-
-# -----------------------------
-# GUARDAR EN GITHUB 🔥
+# FUNCIÓN GUARDAR EN GITHUB 🔥
 # -----------------------------
 
 def guardar_en_github(df, archivo):
@@ -63,7 +56,7 @@ def guardar_en_github(df, archivo):
     contenido = base64.b64encode(output.getvalue()).decode()
 
     data = {
-        "message": f"Actualización desde app - {archivo}",
+        "message": "Actualización desde app",
         "content": contenido,
         "branch": "main"
     }
@@ -75,7 +68,17 @@ def guardar_en_github(df, archivo):
 
 
 # -----------------------------
-# CARGAR BASE
+# APP PRINCIPAL
+# -----------------------------
+
+st.title("💖 Sistema de Control de Facturación Kashio")
+st.subheader(f"Bienvenida {st.session_state['usuario']} 👋")
+
+archivo_base = "base_tarifas_guardada.xlsx"
+archivo_historial = "historial_tarifas.xlsx"
+
+# -----------------------------
+# Cargar base
 # -----------------------------
 
 if os.path.exists(archivo_base):
@@ -88,33 +91,36 @@ for col in ["id_cuenta","producto","tipo","bracket"]:
         base_guardada[col] = ""
 
 # -----------------------------
-# HISTORIAL
+# Historial
 # -----------------------------
 
 if os.path.exists(archivo_historial):
     historial = pd.read_excel(archivo_historial)
 else:
     historial = pd.DataFrame(columns=[
-        "fecha","id_cuenta","cliente","producto",
-        "tipo","bracket","valor_anterior","valor_nuevo"
+        "fecha",
+        "id_cuenta",
+        "cliente",
+        "producto",
+        "tipo",
+        "bracket",
+        "valor_anterior",
+        "valor_nuevo"
     ])
 
 # -----------------------------
-# UI
-# -----------------------------
-
-st.title("💖 Sistema de Control de Facturación Kashio")
-st.subheader(f"Bienvenida {st.session_state['usuario']} 👋")
-
-# -----------------------------
-# SUBIR ARCHIVO
+# Subir archivo
 # -----------------------------
 
 archivo = st.file_uploader("Sube tu base tarifaria", type=["xlsx","csv"])
 
 if archivo is not None:
 
-    df_nuevo = pd.read_csv(archivo) if archivo.name.endswith(".csv") else pd.read_excel(archivo)
+    if archivo.name.endswith(".csv"):
+        df_nuevo = pd.read_csv(archivo)
+    else:
+        df_nuevo = pd.read_excel(archivo)
+
     df_nuevo.columns = df_nuevo.columns.str.strip().str.lower()
 
     for col in ["id_cuenta","producto","tipo","bracket"]:
@@ -125,54 +131,68 @@ if archivo is not None:
 
     for _, fila in df_nuevo.iterrows():
 
-        if not base_guardada.empty:
+        if base_guardada.empty:
+            filtro = None
+        else:
             filtro = (
                 (base_guardada["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
                 (base_guardada["producto"] == fila["producto"]) &
                 (base_guardada["tipo"] == fila["tipo"]) &
                 (base_guardada["bracket"].astype(str) == str(fila["bracket"]))
             )
-        else:
-            filtro = None
+
+        if not base_guardada.empty and fila["id_cuenta"] not in base_guardada["id_cuenta"].values:
+            st.info(f"🆕 Nuevo cliente detectado: {fila['cliente']}")
+
+        if base_guardada.empty or not filtro.any():
+            st.info(f"📊 Nueva tarifa detectada: {fila['cliente']} - {fila['producto']}")
 
         if filtro is not None and filtro.any():
+
             viejo = base_guardada.loc[filtro]
 
-            viejo_valor = viejo.iloc[0].get("comision_variable",0)
-            nuevo_valor = fila.get("comision_variable",0)
+            if "comision_variable" in df_nuevo.columns:
 
-            if str(viejo_valor) != str(nuevo_valor):
+                viejo_valor = viejo.iloc[0].get("comision_variable",0)
+                nuevo_valor = fila.get("comision_variable",0)
 
-                historial.loc[len(historial)] = {
-                    "fecha": datetime.datetime.now(),
-                    "id_cuenta": fila["id_cuenta"],
-                    "cliente": fila["cliente"],
-                    "producto": fila["producto"],
-                    "tipo": fila["tipo"],
-                    "bracket": fila["bracket"],
-                    "valor_anterior": viejo_valor,
-                    "valor_nuevo": nuevo_valor
-                }
+                if str(viejo_valor) != str(nuevo_valor):
+
+                    st.warning(
+                        f"⚠ Cambio de comisión detectado: {fila['cliente']} | {viejo_valor} → {nuevo_valor}"
+                    )
+
+                    historial.loc[len(historial)] = {
+                        "fecha": datetime.datetime.now(),
+                        "id_cuenta": fila["id_cuenta"],
+                        "cliente": fila["cliente"],
+                        "producto": fila["producto"],
+                        "tipo": fila["tipo"],
+                        "bracket": fila["bracket"],
+                        "valor_anterior": viejo_valor,
+                        "valor_nuevo": nuevo_valor
+                    }
 
     base_guardada = pd.concat([base_guardada, df_nuevo])
+
     base_guardada = base_guardada.drop_duplicates(
         subset=["id_cuenta","producto","tipo","bracket"],
         keep="last"
     )
 
-    # 🔥 GUARDADO AUTOMÁTICO
+    # 🔥 SOLO CAMBIO AQUÍ (guardado en GitHub)
     guardar_en_github(base_guardada, archivo_base)
     guardar_en_github(historial, archivo_historial)
 
-    st.success("✅ Base guardada en GitHub correctamente")
+    st.success("Base actualizada correctamente")
 
 df = base_guardada.copy()
 
 # -----------------------------
-# SIDEBAR
+# Buscador
 # -----------------------------
 
-st.sidebar.header("🔎 Buscar cliente")
+st.sidebar.header("Buscar cliente")
 
 if st.sidebar.button("Cerrar sesión"):
     st.session_state["auth"] = False
@@ -188,7 +208,42 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# TABLA
+# Navegación
+# -----------------------------
+
+if "pagina" not in st.session_state:
+    st.session_state.pagina = "inicio"
+
+col1,col2,col3,col4,col5,col6,col7,col8 = st.columns(8)
+
+if col1.button("Dashboard"):
+    st.session_state.pagina="inicio"
+
+if col2.button("Licencias"):
+    st.session_state.pagina="licencias"
+
+if col3.button("PASS"):
+    st.session_state.pagina="pass"
+
+if col4.button("Payouts"):
+    st.session_state.pagina="payouts"
+
+if col5.button("Payin"):
+    st.session_state.pagina="payin"
+
+if col6.button("Notificaciones"):
+    st.session_state.pagina="notificaciones"
+
+if col7.button("Interconexión"):
+    st.session_state.pagina="interconexion"
+
+if col8.button("Historial"):
+    st.session_state.pagina="historial"
+
+st.divider()
+
+# -----------------------------
+# Tabla editable
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -197,39 +252,89 @@ def mostrar_tabla(data):
         st.warning("No hay datos disponibles")
         return
 
-    editado = st.data_editor(data, use_container_width=True)
+    data = data.dropna(how="all")
+    data = data.dropna(axis=1, how="all")
+
+    editado = st.data_editor(
+        data,
+        use_container_width=True,
+        num_rows="dynamic"
+    )
 
     if st.button("Guardar cambios"):
         guardar_en_github(editado, archivo_base)
-        st.success("💾 Cambios guardados en GitHub")
+        st.success("Cambios guardados")
 
 # -----------------------------
-# DASHBOARD
+# Dashboard
 # -----------------------------
 
-st.header("📊 Dashboard")
+if st.session_state.pagina == "inicio":
 
-if not df.empty:
+    st.header("📊 Dashboard")
 
-    c1,c2,c3,c4 = st.columns(4)
+    if not df.empty:
 
-    c1.metric("Clientes", df["cliente"].nunique())
-    c2.metric("Tipos", df["tipo"].nunique() if "tipo" in df.columns else 0)
-    c3.metric("Registros", len(df))
-    c4.metric("IDs únicos", df["id_cuenta"].nunique())
+        c1,c2,c3,c4 = st.columns(4)
 
-st.divider()
-st.header("Base de Tarifarios")
-mostrar_tabla(df)
+        c1.metric("Clientes", df["cliente"].nunique())
 
-# -----------------------------
-# HISTORIAL
-# -----------------------------
+        if "tipo" in df.columns:
+            c2.metric("Tipos", df["tipo"].nunique())
+        else:
+            c2.metric("Tipos",0)
 
-st.divider()
-st.header("📜 Historial")
+        c3.metric("Registros", len(df))
+        c4.metric("IDs únicos", df["id_cuenta"].nunique())
 
-if historial.empty:
-    st.warning("No hay cambios registrados")
-else:
-    st.dataframe(historial, use_container_width=True)
+    st.divider()
+
+    st.header("Base de Tarifarios")
+    mostrar_tabla(df)
+
+elif st.session_state.pagina == "pass":
+    st.header("PASS")
+    mostrar_tabla(df[df["producto"].str.upper()=="PASS"])
+
+elif st.session_state.pagina == "payin":
+    st.header("PAYIN")
+    mostrar_tabla(df[df["producto"].str.upper()=="PAYIN"])
+
+elif st.session_state.pagina == "payouts":
+
+    st.header("PAYOUTS")
+
+    payout_cols = [
+        "id_cuenta","cliente","ruc","tipo","bracket",
+        "condicion_volumen_ticket","comision_variable",
+        "comision_fija","comision_minima_usd","comision_minima_pen"
+    ]
+
+    payout_df = df[df["producto"].str.upper()=="PAYOUT"]
+
+    for col in payout_cols:
+        if col not in payout_df.columns:
+            payout_df[col] = ""
+
+    mostrar_tabla(payout_df[payout_cols])
+
+elif st.session_state.pagina == "notificaciones":
+    st.header("NOTIFICACIONES WSP")
+    mostrar_tabla(df[df["producto"].str.upper()=="WSP"])
+
+elif st.session_state.pagina == "licencias":
+    st.header("LICENCIAS")
+    mostrar_tabla(df[df["producto"].str.upper()=="LICENCIA"])
+
+elif st.session_state.pagina == "interconexion":
+    st.header("INTERCONEXIÓN")
+    mostrar_tabla(df[df["producto"].str.upper()=="INTERCONEXION"])
+
+elif st.session_state.pagina == "historial":
+
+    st.header("Historial de cambios de tarifas")
+
+    if historial.empty:
+        st.warning("No hay cambios registrados")
+    else:
+        st.dataframe(historial, use_container_width=True)
