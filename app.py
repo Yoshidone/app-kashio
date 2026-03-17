@@ -2,9 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
-import requests
-import base64
-from io import BytesIO
 
 st.set_page_config(page_title="Sistema de Control de Facturación Kashio", layout="wide")
 
@@ -34,38 +31,6 @@ def check_login():
 if "auth" not in st.session_state or not st.session_state["auth"]:
     check_login()
     st.stop()
-
-# -----------------------------
-# FUNCIÓN GUARDAR EN GITHUB 🔥
-# -----------------------------
-
-def guardar_en_github(df, archivo):
-    token = st.secrets["GITHUB_TOKEN"]
-    repo = st.secrets["REPO"]
-
-    url = f"https://api.github.com/repos/{repo}/contents/{archivo}"
-
-    r = requests.get(url, headers={"Authorization": f"token {token}"})
-    if r.status_code == 200:
-        sha = r.json()["sha"]
-    else:
-        sha = None
-
-    output = BytesIO()
-    df.to_excel(output, index=False, engine='openpyxl')
-    contenido = base64.b64encode(output.getvalue()).decode()
-
-    data = {
-        "message": "Actualización desde app",
-        "content": contenido,
-        "branch": "main"
-    }
-
-    if sha:
-        data["sha"] = sha
-
-    requests.put(url, json=data, headers={"Authorization": f"token {token}"})
-
 
 # -----------------------------
 # APP PRINCIPAL
@@ -98,14 +63,8 @@ if os.path.exists(archivo_historial):
     historial = pd.read_excel(archivo_historial)
 else:
     historial = pd.DataFrame(columns=[
-        "fecha",
-        "id_cuenta",
-        "cliente",
-        "producto",
-        "tipo",
-        "bracket",
-        "valor_anterior",
-        "valor_nuevo"
+        "fecha","id_cuenta","cliente","producto",
+        "tipo","bracket","valor_anterior","valor_nuevo"
     ])
 
 # -----------------------------
@@ -141,11 +100,8 @@ if archivo is not None:
                 (base_guardada["bracket"].astype(str) == str(fila["bracket"]))
             )
 
-        if not base_guardada.empty and fila["id_cuenta"] not in base_guardada["id_cuenta"].values:
-            st.info(f"🆕 Nuevo cliente detectado: {fila['cliente']}")
-
         if base_guardada.empty or not filtro.any():
-            st.info(f"📊 Nueva tarifa detectada: {fila['cliente']} - {fila['producto']}")
+            st.info(f"📊 Nueva tarifa: {fila.get('cliente','')}")
 
         if filtro is not None and filtro.any():
 
@@ -158,14 +114,10 @@ if archivo is not None:
 
                 if str(viejo_valor) != str(nuevo_valor):
 
-                    st.warning(
-                        f"⚠ Cambio de comisión detectado: {fila['cliente']} | {viejo_valor} → {nuevo_valor}"
-                    )
-
                     historial.loc[len(historial)] = {
                         "fecha": datetime.datetime.now(),
                         "id_cuenta": fila["id_cuenta"],
-                        "cliente": fila["cliente"],
+                        "cliente": fila.get("cliente",""),
                         "producto": fila["producto"],
                         "tipo": fila["tipo"],
                         "bracket": fila["bracket"],
@@ -180,19 +132,18 @@ if archivo is not None:
         keep="last"
     )
 
-    # 🔥 SOLO CAMBIO AQUÍ (guardado en GitHub)
-    guardar_en_github(base_guardada, archivo_base)
-    guardar_en_github(historial, archivo_historial)
+    base_guardada.to_excel(archivo_base, index=False)
+    historial.to_excel(archivo_historial, index=False)
 
     st.success("Base actualizada correctamente")
 
 df = base_guardada.copy()
 
 # -----------------------------
-# Buscador
+# SIDEBAR + FILTROS
 # -----------------------------
 
-st.sidebar.header("Buscar cliente")
+st.sidebar.header("🔎 Buscar cliente")
 
 if st.sidebar.button("Cerrar sesión"):
     st.session_state["auth"] = False
@@ -201,11 +152,15 @@ if st.sidebar.button("Cerrar sesión"):
 buscar_id = st.sidebar.text_input("Buscar por ID CUENTA")
 buscar_cliente = st.sidebar.text_input("Buscar por nombre")
 
+filtro_activo = False
+
 if buscar_id:
     df = df[df["id_cuenta"].astype(str).str.contains(buscar_id)]
+    filtro_activo = True
 
 if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
+    filtro_activo = True
 
 # -----------------------------
 # Navegación
@@ -216,34 +171,19 @@ if "pagina" not in st.session_state:
 
 col1,col2,col3,col4,col5,col6,col7,col8 = st.columns(8)
 
-if col1.button("Dashboard"):
-    st.session_state.pagina="inicio"
-
-if col2.button("Licencias"):
-    st.session_state.pagina="licencias"
-
-if col3.button("PASS"):
-    st.session_state.pagina="pass"
-
-if col4.button("Payouts"):
-    st.session_state.pagina="payouts"
-
-if col5.button("Payin"):
-    st.session_state.pagina="payin"
-
-if col6.button("Notificaciones"):
-    st.session_state.pagina="notificaciones"
-
-if col7.button("Interconexión"):
-    st.session_state.pagina="interconexion"
-
-if col8.button("Historial"):
-    st.session_state.pagina="historial"
+if col1.button("Dashboard"): st.session_state.pagina="inicio"
+if col2.button("Licencias"): st.session_state.pagina="licencias"
+if col3.button("PASS"): st.session_state.pagina="pass"
+if col4.button("Payouts"): st.session_state.pagina="payouts"
+if col5.button("Payin"): st.session_state.pagina="payin"
+if col6.button("Notificaciones"): st.session_state.pagina="notificaciones"
+if col7.button("Interconexión"): st.session_state.pagina="interconexion"
+if col8.button("Historial"): st.session_state.pagina="historial"
 
 st.divider()
 
 # -----------------------------
-# Tabla editable
+# TABLA SEGURA
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -252,21 +192,27 @@ def mostrar_tabla(data):
         st.warning("No hay datos disponibles")
         return
 
-    data = data.dropna(how="all")
-    data = data.dropna(axis=1, how="all")
+    editado = st.data_editor(data, use_container_width=True, num_rows="dynamic")
 
-    editado = st.data_editor(
-        data,
-        use_container_width=True,
-        num_rows="dynamic"
-    )
+    if filtro_activo:
+        st.warning("⚠ No puedes guardar mientras estás filtrando")
 
     if st.button("Guardar cambios"):
-        guardar_en_github(editado, archivo_base)
-        st.success("Cambios guardados")
+
+        if filtro_activo:
+            st.error("❌ Quita los filtros antes de guardar")
+            return
+
+        base_actual = pd.read_excel(archivo_base)
+
+        base_actual.update(editado)
+
+        base_actual.to_excel(archivo_base, index=False)
+
+        st.success("✅ Guardado sin perder datos")
 
 # -----------------------------
-# Dashboard
+# VISTAS
 # -----------------------------
 
 if st.session_state.pagina == "inicio":
@@ -274,21 +220,13 @@ if st.session_state.pagina == "inicio":
     st.header("📊 Dashboard")
 
     if not df.empty:
-
         c1,c2,c3,c4 = st.columns(4)
-
         c1.metric("Clientes", df["cliente"].nunique())
-
-        if "tipo" in df.columns:
-            c2.metric("Tipos", df["tipo"].nunique())
-        else:
-            c2.metric("Tipos",0)
-
+        c2.metric("Tipos", df["tipo"].nunique() if "tipo" in df.columns else 0)
         c3.metric("Registros", len(df))
         c4.metric("IDs únicos", df["id_cuenta"].nunique())
 
     st.divider()
-
     st.header("Base de Tarifarios")
     mostrar_tabla(df)
 
@@ -301,25 +239,11 @@ elif st.session_state.pagina == "payin":
     mostrar_tabla(df[df["producto"].str.upper()=="PAYIN"])
 
 elif st.session_state.pagina == "payouts":
-
     st.header("PAYOUTS")
-
-    payout_cols = [
-        "id_cuenta","cliente","ruc","tipo","bracket",
-        "condicion_volumen_ticket","comision_variable",
-        "comision_fija","comision_minima_usd","comision_minima_pen"
-    ]
-
-    payout_df = df[df["producto"].str.upper()=="PAYOUT"]
-
-    for col in payout_cols:
-        if col not in payout_df.columns:
-            payout_df[col] = ""
-
-    mostrar_tabla(payout_df[payout_cols])
+    mostrar_tabla(df[df["producto"].str.upper()=="PAYOUT"])
 
 elif st.session_state.pagina == "notificaciones":
-    st.header("NOTIFICACIONES WSP")
+    st.header("NOTIFICACIONES")
     mostrar_tabla(df[df["producto"].str.upper()=="WSP"])
 
 elif st.session_state.pagina == "licencias":
@@ -332,7 +256,7 @@ elif st.session_state.pagina == "interconexion":
 
 elif st.session_state.pagina == "historial":
 
-    st.header("Historial de cambios de tarifas")
+    st.header("Historial de cambios")
 
     if historial.empty:
         st.warning("No hay cambios registrados")
