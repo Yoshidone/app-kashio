@@ -98,9 +98,7 @@ if archivo is not None:
         else:
             filtro = (
                 (base_guardada["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
-                (base_guardada["producto"] == fila["producto"]) &
-                (base_guardada["tipo"] == fila["tipo"]) &
-                (base_guardada["bracket"].astype(str) == str(fila["bracket"]))
+                (base_guardada["producto"] == fila["producto"])
             )
 
         if not base_guardada.empty and fila["id_cuenta"] not in base_guardada["id_cuenta"].values:
@@ -138,7 +136,7 @@ if archivo is not None:
     base_guardada = pd.concat([base_guardada, df_nuevo])
 
     base_guardada = base_guardada.drop_duplicates(
-        subset=["id_cuenta","producto","tipo","bracket"],
+        subset=["id_cuenta","producto"],
         keep="last"
     )
 
@@ -192,7 +190,7 @@ if col8.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE (FIX FINAL 🔥)
+# TABLA EDITABLE
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -204,25 +202,12 @@ def mostrar_tabla(data):
     data = data.dropna(how="all")
     data = data.dropna(axis=1, how="all")
 
-    editado = st.data_editor(
-        data,
-        use_container_width=True,
-        num_rows="dynamic"
-    )
-
-    duplicados = data["id_cuenta"].value_counts()
-    multi_tarifas = duplicados[duplicados > 1]
-
-    if not multi_tarifas.empty:
-        st.warning("⚠ Clientes con múltiples tarifas:")
-        for cliente, cantidad in multi_tarifas.items():
-            st.write(f"• ID {cliente}: {cantidad} tarifas")
+    editado = st.data_editor(data, use_container_width=True, num_rows="dynamic")
 
     if st.button("Guardar cambios"):
 
         base_actual = pd.read_excel(archivo_base)
 
-        # 🔥 FIX COMPLETO
         for col in ["id_cuenta","producto","tipo","bracket"]:
             if col not in base_actual.columns:
                 base_actual[col] = ""
@@ -234,18 +219,11 @@ def mostrar_tabla(data):
         base_actual["id_cuenta"] = base_actual["id_cuenta"].astype(str)
         editado["id_cuenta"] = editado["id_cuenta"].astype(str)
 
-        if "ruc" in base_actual.columns:
-            base_actual["ruc"] = base_actual["ruc"].astype(str).str.strip()
-        if "ruc" in editado.columns:
-            editado["ruc"] = editado["ruc"].astype(str).str.strip()
-
         for _, fila in editado.iterrows():
 
             filtro = (
                 (base_actual["id_cuenta"] == fila["id_cuenta"]) &
-                (base_actual["producto"] == fila["producto"]) &
-                (base_actual["tipo"] == fila["tipo"]) &
-                (base_actual["bracket"].astype(str) == str(fila["bracket"]))
+                (base_actual["producto"] == fila["producto"])
             )
 
             if filtro.any():
@@ -261,16 +239,13 @@ def mostrar_tabla(data):
 
                         st.warning(f"⚠ Cambio en {col}: {viejo} → {nuevo}")
 
-                        if col == "ruc":
-                            st.error(f"🚨 Cambio de RUC: {viejo} → {nuevo}")
-
                         historial.loc[len(historial)] = {
                             "fecha": datetime.datetime.now(),
                             "id_cuenta": fila["id_cuenta"],
                             "cliente": fila.get("cliente",""),
                             "producto": fila["producto"],
-                            "tipo": fila["tipo"],
-                            "bracket": fila["bracket"],
+                            "tipo": fila.get("tipo",""),
+                            "bracket": fila.get("bracket",""),
                             "valor_anterior": viejo,
                             "valor_nuevo": nuevo
                         }
@@ -301,49 +276,6 @@ if st.session_state.pagina == "inicio":
     st.header("Base de Tarifarios")
     mostrar_tabla(df)
 
-elif st.session_state.pagina == "paas":
-    st.header("PAAS")
-    mostrar_tabla(df[df["producto"]=="PAAS"])
-
-elif st.session_state.pagina == "payin":
-    st.header("PAYIN")
-    mostrar_tabla(df[df["producto"]=="PAYIN"])
-
-elif st.session_state.pagina == "payouts":
-
-    st.header("PAYOUTS")
-
-    payout_cols = [
-        "id_cuenta","cliente","ruc","tipo","bracket",
-        "condicion_volumen_ticket","comision_variable",
-        "comision_fija","comision_minima_usd","comision_minima_pen"
-    ]
-
-    payout_df = df[df["producto"]=="PAYOUT"]
-
-    for col in payout_cols:
-        if col not in payout_df.columns:
-            payout_df[col] = ""
-
-    mostrar_tabla(payout_df[payout_cols])
-
-elif st.session_state.pagina == "notificaciones":
-    st.header("NOTIFICACIONES WSP")
-    mostrar_tabla(df[df["producto"]=="WSP"])
-
 elif st.session_state.pagina == "licencias":
     st.header("LICENCIAS")
     mostrar_tabla(df[df["producto"]=="LICENCIA"])
-
-elif st.session_state.pagina == "interconexion":
-    st.header("INTERCONEXIÓN")
-    mostrar_tabla(df[df["producto"]=="INTERCONEXION"])
-
-elif st.session_state.pagina == "historial":
-
-    st.header("Historial de cambios de tarifas")
-
-    if historial.empty:
-        st.warning("No hay cambios registrados")
-    else:
-        st.dataframe(historial, use_container_width=True)
