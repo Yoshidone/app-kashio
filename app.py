@@ -91,50 +91,6 @@ if archivo is not None:
     df_nuevo["producto"] = df_nuevo["producto"].astype(str).str.upper().str.strip()
     df_nuevo["producto"] = df_nuevo["producto"].replace("INTERCONEXIÓN","INTERCONEXION")
 
-    for _, fila in df_nuevo.iterrows():
-
-        if base_guardada.empty:
-            filtro = None
-        else:
-            filtro = (
-                (base_guardada["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
-                (base_guardada["producto"] == fila["producto"]) &
-                (base_guardada["tipo"] == fila["tipo"]) &
-                (base_guardada["bracket"].astype(str) == str(fila["bracket"]))
-            )
-
-        if not base_guardada.empty and fila["id_cuenta"] not in base_guardada["id_cuenta"].values:
-            st.info(f"🆕 Nuevo cliente detectado: {fila.get('cliente','')}")
-
-        if base_guardada.empty or (filtro is not None and not filtro.any()):
-            st.info(f"📊 Nueva tarifa detectada: {fila.get('cliente','')} - {fila['producto']}")
-
-        if filtro is not None and filtro.any():
-
-            viejo = base_guardada.loc[filtro]
-
-            if "comision_variable" in df_nuevo.columns:
-
-                viejo_valor = viejo.iloc[0].get("comision_variable",0)
-                nuevo_valor = fila.get("comision_variable",0)
-
-                if str(viejo_valor) != str(nuevo_valor):
-
-                    st.warning(
-                        f"⚠ Cambio de comisión detectado: {fila.get('cliente','')} | {viejo_valor} → {nuevo_valor}"
-                    )
-
-                    historial.loc[len(historial)] = {
-                        "fecha": datetime.datetime.now(),
-                        "id_cuenta": fila["id_cuenta"],
-                        "cliente": fila.get("cliente",""),
-                        "producto": fila["producto"],
-                        "tipo": fila["tipo"],
-                        "bracket": fila["bracket"],
-                        "valor_anterior": viejo_valor,
-                        "valor_nuevo": nuevo_valor
-                    }
-
     base_guardada = pd.concat([base_guardada, df_nuevo])
 
     base_guardada = base_guardada.drop_duplicates(
@@ -143,8 +99,6 @@ if archivo is not None:
     )
 
     base_guardada.to_excel(archivo_base, index=False)
-    historial.to_excel(archivo_historial, index=False)
-
     st.success("Base actualizada correctamente")
 
 df = base_guardada.copy()
@@ -192,7 +146,7 @@ if col8.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE (FIX APLICADO)
+# TABLA EDITABLE (FIX REAL)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -201,41 +155,44 @@ def mostrar_tabla(data):
         st.warning("No hay datos disponibles")
         return
 
-    data = data.dropna(how="all")
-    data = data.dropna(axis=1, how="all")
-
     editado = st.data_editor(data, use_container_width=True, num_rows="dynamic")
 
     if st.button("Guardar cambios"):
 
         base_actual = pd.read_excel(archivo_base)
 
-        # 🔥 FIX ERROR KEY
+        # evitar errores de columnas
         for col in ["id_cuenta","producto","tipo","bracket"]:
             if col not in base_actual.columns:
                 base_actual[col] = ""
-
-        for col in ["id_cuenta","producto","tipo","bracket"]:
             if col not in editado.columns:
                 editado[col] = ""
 
+        base_actual = base_actual.fillna("")
+        editado = editado.fillna("")
+
         base_actual["id_cuenta"] = base_actual["id_cuenta"].astype(str)
         editado["id_cuenta"] = editado["id_cuenta"].astype(str)
+
+        cambios = 0
 
         for _, fila in editado.iterrows():
 
             filtro = (
                 (base_actual["id_cuenta"] == fila["id_cuenta"]) &
-                (base_actual["producto"] == fila["producto"]) &
-                (base_actual["tipo"] == fila["tipo"]) &
-                (base_actual["bracket"].astype(str) == str(fila["bracket"]))
+                (base_actual["producto"].astype(str).str.strip() == str(fila["producto"]).strip())
             )
 
             if filtro.any():
                 base_actual.loc[filtro, :] = fila
+                cambios += 1
 
         base_actual.to_excel(archivo_base, index=False)
-        st.success("✅ Cambios guardados")
+
+        if cambios > 0:
+            st.success(f"✅ {cambios} cambios guardados correctamente")
+        else:
+            st.warning("⚠ No se detectaron cambios")
 
 # -----------------------------
 # VISTAS
