@@ -88,7 +88,6 @@ if archivo is not None:
 
     df_nuevo = df_nuevo.dropna(how="all")
 
-    # 🔥 Normalizar producto
     df_nuevo["producto"] = df_nuevo["producto"].astype(str).str.upper().str.strip()
     df_nuevo["producto"] = df_nuevo["producto"].replace("PASS", "PAAS")
 
@@ -150,7 +149,6 @@ if archivo is not None:
 
 df = base_guardada.copy()
 
-# 🔥 Normalizar producto global
 df["producto"] = df["producto"].astype(str).str.upper().str.strip()
 df["producto"] = df["producto"].replace("PASS", "PAAS")
 
@@ -194,7 +192,7 @@ if col8.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE (CON FIX 🔥)
+# TABLA EDITABLE (FIX FINAL 🔥)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -212,7 +210,6 @@ def mostrar_tabla(data):
         num_rows="dynamic"
     )
 
-    # ALERTA: múltiples tarifas
     duplicados = data["id_cuenta"].value_counts()
     multi_tarifas = duplicados[duplicados > 1]
 
@@ -225,10 +222,14 @@ def mostrar_tabla(data):
 
         base_actual = pd.read_excel(archivo_base)
 
-        # 🔥 FIX KEYERROR
+        # 🔥 FIX COMPLETO
         for col in ["id_cuenta","producto","tipo","bracket"]:
             if col not in base_actual.columns:
                 base_actual[col] = ""
+
+        for col in ["id_cuenta","producto","tipo","bracket"]:
+            if col not in editado.columns:
+                editado[col] = ""
 
         base_actual["id_cuenta"] = base_actual["id_cuenta"].astype(str)
         editado["id_cuenta"] = editado["id_cuenta"].astype(str)
