@@ -55,12 +55,6 @@ for col in ["id_cuenta","producto","tipo","bracket"]:
     if col not in base_guardada.columns:
         base_guardada[col] = ""
 
-# 🔥 NORMALIZACIÓN SUAVE
-base_guardada["producto"] = base_guardada["producto"].astype(str).str.upper().str.strip()
-base_guardada["producto"] = base_guardada["producto"].replace({
-    "INTERCONEXIÓN": "INTERCONEXION"
-})
-
 # -----------------------------
 # Historial
 # -----------------------------
@@ -95,9 +89,7 @@ if archivo is not None:
     df_nuevo = df_nuevo.dropna(how="all")
 
     df_nuevo["producto"] = df_nuevo["producto"].astype(str).str.upper().str.strip()
-    df_nuevo["producto"] = df_nuevo["producto"].replace({
-        "INTERCONEXIÓN": "INTERCONEXION"
-    })
+    df_nuevo["producto"] = df_nuevo["producto"].replace("INTERCONEXIÓN","INTERCONEXION")
 
     for _, fila in df_nuevo.iterrows():
 
@@ -123,10 +115,10 @@ if archivo is not None:
 
             if "comision_variable" in df_nuevo.columns:
 
-                viejo_valor = str(viejo.iloc[0].get("comision_variable",0)).strip()
-                nuevo_valor = str(fila.get("comision_variable",0)).strip()
+                viejo_valor = viejo.iloc[0].get("comision_variable",0)
+                nuevo_valor = fila.get("comision_variable",0)
 
-                if viejo_valor != nuevo_valor:
+                if str(viejo_valor) != str(nuevo_valor):
 
                     st.warning(
                         f"⚠ Cambio de comisión detectado: {fila.get('cliente','')} | {viejo_valor} → {nuevo_valor}"
@@ -157,11 +149,8 @@ if archivo is not None:
 
 df = base_guardada.copy()
 
-# 🔥 NORMALIZACIÓN GLOBAL
 df["producto"] = df["producto"].astype(str).str.upper().str.strip()
-df["producto"] = df["producto"].replace({
-    "INTERCONEXIÓN": "INTERCONEXION"
-})
+df["producto"] = df["producto"].replace("INTERCONEXIÓN","INTERCONEXION")
 
 # -----------------------------
 # SIDEBAR
@@ -203,7 +192,7 @@ if col8.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE
+# TABLA EDITABLE (FIX APLICADO)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -220,6 +209,15 @@ def mostrar_tabla(data):
     if st.button("Guardar cambios"):
 
         base_actual = pd.read_excel(archivo_base)
+
+        # 🔥 FIX ERROR KEY
+        for col in ["id_cuenta","producto","tipo","bracket"]:
+            if col not in base_actual.columns:
+                base_actual[col] = ""
+
+        for col in ["id_cuenta","producto","tipo","bracket"]:
+            if col not in editado.columns:
+                editado[col] = ""
 
         base_actual["id_cuenta"] = base_actual["id_cuenta"].astype(str)
         editado["id_cuenta"] = editado["id_cuenta"].astype(str)
@@ -244,7 +242,6 @@ def mostrar_tabla(data):
 # -----------------------------
 
 if st.session_state.pagina == "inicio":
-
     st.header("📊 Dashboard")
     mostrar_tabla(df)
 
