@@ -88,7 +88,7 @@ if archivo is not None:
 
     df_nuevo = df_nuevo.dropna(how="all")
 
-    # 🔥 Normalizar producto
+    # Normalizar producto
     df_nuevo["producto"] = df_nuevo["producto"].astype(str).str.upper().str.strip()
     df_nuevo["producto"] = df_nuevo["producto"].replace("PASS", "PAAS")
 
@@ -150,7 +150,7 @@ if archivo is not None:
 
 df = base_guardada.copy()
 
-# 🔥 Normalizar producto global
+# Normalizar producto global
 df["producto"] = df["producto"].astype(str).str.upper().str.strip()
 df["producto"] = df["producto"].replace("PASS", "PAAS")
 
@@ -194,7 +194,7 @@ if col8.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE
+# TABLA EDITABLE (MEJORADA)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -212,12 +212,26 @@ def mostrar_tabla(data):
         num_rows="dynamic"
     )
 
+    # ALERTA: múltiples tarifas
+    duplicados = data["id_cuenta"].value_counts()
+    multi_tarifas = duplicados[duplicados > 1]
+
+    if not multi_tarifas.empty:
+        st.warning("⚠ Clientes con múltiples tarifas:")
+        for cliente, cantidad in multi_tarifas.items():
+            st.write(f"• ID {cliente}: {cantidad} tarifas")
+
     if st.button("Guardar cambios"):
 
         base_actual = pd.read_excel(archivo_base)
 
         base_actual["id_cuenta"] = base_actual["id_cuenta"].astype(str)
         editado["id_cuenta"] = editado["id_cuenta"].astype(str)
+
+        if "ruc" in base_actual.columns:
+            base_actual["ruc"] = base_actual["ruc"].astype(str).str.strip()
+        if "ruc" in editado.columns:
+            editado["ruc"] = editado["ruc"].astype(str).str.strip()
 
         for _, fila in editado.iterrows():
 
@@ -229,11 +243,38 @@ def mostrar_tabla(data):
             )
 
             if filtro.any():
-                base_actual.loc[filtro, :] = fila
+
+                original = base_actual.loc[filtro].iloc[0]
+
+                for col in editado.columns:
+
+                    viejo = str(original.get(col,""))
+                    nuevo = str(fila.get(col,""))
+
+                    if viejo != nuevo:
+
+                        st.warning(f"⚠ Cambio en {col}: {viejo} → {nuevo}")
+
+                        if col == "ruc":
+                            st.error(f"🚨 Cambio de RUC: {viejo} → {nuevo}")
+
+                        historial.loc[len(historial)] = {
+                            "fecha": datetime.datetime.now(),
+                            "id_cuenta": fila["id_cuenta"],
+                            "cliente": fila.get("cliente",""),
+                            "producto": fila["producto"],
+                            "tipo": fila["tipo"],
+                            "bracket": fila["bracket"],
+                            "valor_anterior": viejo,
+                            "valor_nuevo": nuevo
+                        }
+
+                        base_actual.loc[filtro, col] = fila[col]
 
         base_actual.to_excel(archivo_base, index=False)
+        historial.to_excel(archivo_historial, index=False)
 
-        st.success("✅ Cambios guardados")
+        st.success("✅ Cambios guardados correctamente")
 
 # -----------------------------
 # VISTAS
