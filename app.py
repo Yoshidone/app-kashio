@@ -8,9 +8,8 @@ from io import BytesIO
 st.set_page_config(page_title="Sistema de Control de Facturación Kashio", layout="wide")
 
 # -----------------------------
-# 🔐 GITHUB CONFIG
+# 🔐 CONFIG GITHUB
 # -----------------------------
-
 GITHUB_TOKEN = st.secrets["TOKEN_GITHUB"]
 REPO = "Yoshidone/app-kashio"
 
@@ -20,11 +19,9 @@ FILE_HISTORIAL = "historial_cambios.xlsx"
 # -----------------------------
 # FUNCIONES GITHUB
 # -----------------------------
-
 def leer_excel_github(file_path):
     url = f"https://api.github.com/repos/{REPO}/contents/{file_path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-
     r = requests.get(url, headers=headers)
 
     if r.status_code == 200:
@@ -41,35 +38,26 @@ def subir_excel_github(df, file_path, mensaje):
     content = base64.b64encode(buffer.getvalue()).decode()
 
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-
     r = requests.get(url, headers=headers)
 
-    sha = None
-    if r.status_code == 200:
-        sha = r.json()["sha"]
+    sha = r.json()["sha"] if r.status_code == 200 else None
 
-    data = {
-        "message": mensaje,
-        "content": content
-    }
-
+    data = {"message": mensaje, "content": content}
     if sha:
         data["sha"] = sha
 
     requests.put(url, json=data, headers=headers)
 
 # -----------------------------
-# NORMALIZADOR
+# NORMALIZAR
 # -----------------------------
-
 def normalizar_columnas(df):
     df.columns = df.columns.str.strip().str.lower()
     return df
 
 # -----------------------------
-# 🔥 FILTRO SOLO VISUAL
+# 🔥 FILTRO VISUAL (SIN BORRAR BASE)
 # -----------------------------
-
 def filtrar_filas_validas(df):
 
     columnas_monto = [
@@ -84,135 +72,115 @@ def filtrar_filas_validas(df):
     if not columnas_monto:
         return df
 
-    return df.dropna(subset=columnas_monto, how="all")
+    df_copy = df.copy()
+
+    # 🔥 limpiar valores falsos
+    df_copy[columnas_monto] = df_copy[columnas_monto].replace(
+        ["None", "none", "", "nan"], pd.NA
+    )
+
+    return df_copy.dropna(subset=columnas_monto, how="all")
 
 # -----------------------------
 # LOGIN
 # -----------------------------
-
 USERS = {
     "yoshira": "1234",
     "conta": "kashio2026",
     "admin": "admin123"
 }
 
-def check_login():
-    st.title("🔐 Acceso al Sistema Kashio")
-
-    user = st.text_input("Usuario")
-    password = st.text_input("Contraseña", type="password")
+def login():
+    st.title("🔐 Login Kashio")
+    u = st.text_input("Usuario")
+    p = st.text_input("Contraseña", type="password")
 
     if st.button("Ingresar"):
-        if user in USERS and USERS[user] == password:
+        if u in USERS and USERS[u] == p:
             st.session_state["auth"] = True
-            st.session_state["usuario"] = user
+            st.session_state["usuario"] = u
         else:
-            st.error("❌ Credenciales incorrectas")
+            st.error("Credenciales incorrectas")
 
-if "auth" not in st.session_state or not st.session_state["auth"]:
-    check_login()
+if "auth" not in st.session_state:
+    login()
     st.stop()
 
 # -----------------------------
 # HEADER
 # -----------------------------
-
 st.title("💖 Sistema de Control de Facturación Kashio")
 st.subheader(f"Bienvenida {st.session_state['usuario']} 👋")
 
 # -----------------------------
-# CARGA DESDE GITHUB
+# CARGA DATA
 # -----------------------------
-
-base_guardada = normalizar_columnas(leer_excel_github(FILE_BASE))
+base = normalizar_columnas(leer_excel_github(FILE_BASE))
 historial = leer_excel_github(FILE_HISTORIAL)
 
 # -----------------------------
 # UPLOAD
 # -----------------------------
+archivo = st.file_uploader("📂 Sube tu base", type=["xlsx","csv"])
 
-archivo = st.file_uploader("📂 Sube tu base tarifaria", type=["xlsx","csv"])
+if archivo:
+    nuevo = normalizar_columnas(pd.read_excel(archivo))
 
-if archivo is not None:
-
-    df_nuevo = pd.read_excel(archivo)
-    df_nuevo = normalizar_columnas(df_nuevo)
-
-    colA, colB = st.columns(2)
-
-    if colA.button("🧹 Limpiar base completa"):
-
-        df_vacio = pd.DataFrame()
-        subir_excel_github(df_vacio, FILE_BASE, "limpiar base")
-        subir_excel_github(df_vacio, FILE_HISTORIAL, "limpiar historial")
-
-        st.success("Base limpiada en GitHub")
-        st.rerun()
-
-    if colB.button("📥 Cargar como nueva base"):
-
-        subir_excel_github(df_nuevo, FILE_BASE, "nueva base cargada")
-
-        st.success("Base subida a GitHub 🚀")
+    if st.button("📥 Reemplazar base"):
+        subir_excel_github(nuevo, FILE_BASE, "Nueva base")
+        st.success("Base actualizada 🚀")
         st.rerun()
 
 # -----------------------------
-# SIDEBAR
+# FILTROS
 # -----------------------------
+st.sidebar.header("Buscar")
 
-st.sidebar.header("🔎 Buscar")
+f_id = st.sidebar.text_input("ID Cuenta")
+f_cliente = st.sidebar.text_input("Cliente")
 
-buscar_id = st.sidebar.text_input("ID Cuenta")
-buscar_cliente = st.sidebar.text_input("Cliente")
+df = base.copy()
 
-df = base_guardada.copy()
+if f_id:
+    df = df[df["id_cuenta"].astype(str).str.contains(f_id)]
 
-if "producto" in df.columns:
-    df["producto"] = df["producto"].astype(str).str.upper().str.strip()
-
-if buscar_id:
-    df = df[df["id_cuenta"].astype(str).str.contains(buscar_id)]
-
-if buscar_cliente:
-    df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
+if f_cliente:
+    df = df[df["cliente"].astype(str).str.contains(f_cliente, case=False)]
 
 # -----------------------------
-# NAVEGACIÓN
+# MENÚ
 # -----------------------------
+if "page" not in st.session_state:
+    st.session_state.page = "inicio"
 
-if "pagina" not in st.session_state:
-    st.session_state.pagina = "inicio"
+c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
 
-col1,col2,col3,col4,col5,col6,col7 = st.columns(7)
-
-if col1.button("Dashboard"): st.session_state.pagina="inicio"
-if col2.button("Payin"): st.session_state.pagina="payin"
-if col3.button("Payout"): st.session_state.pagina="payout"
-if col4.button("PAAS"): st.session_state.pagina="paas"
-if col5.button("Licencias"): st.session_state.pagina="licencias"
-if col6.button("Interconexión"): st.session_state.pagina="interconexion"
-if col7.button("Historial"): st.session_state.pagina="historial"
+if c1.button("Dashboard"): st.session_state.page="inicio"
+if c2.button("Payin"): st.session_state.page="payin"
+if c3.button("Payout"): st.session_state.page="payout"
+if c4.button("PAAS"): st.session_state.page="paas"
+if c5.button("Licencias"): st.session_state.page="licencias"
+if c6.button("Interconexión"): st.session_state.page="inter"
+if c7.button("Historial"): st.session_state.page="hist"
 
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE
+# TABLA
 # -----------------------------
-
 def mostrar_tabla(data):
 
     if data.empty:
-        st.warning("No hay datos")
+        st.warning("Sin datos")
         return
 
-    # 🔥 FILTRO VISUAL
-    data_filtrada = filtrar_filas_validas(data)
+    data = filtrar_filas_validas(data)
 
-    editado = st.data_editor(data_filtrada, use_container_width=True)
+    editado = st.data_editor(data, use_container_width=True)
 
     if st.button("💾 Guardar cambios"):
 
-        base_actual = data.copy()
+        base_actual = base.copy()
         cambios = []
 
         for _, fila in editado.iterrows():
@@ -223,67 +191,67 @@ def mostrar_tabla(data):
                 (base_actual["tipo"] == fila["tipo"])
             )
 
-            # 🔥 solo si existe bracket
+            # 🔥 manejar bracket opcional
             if "bracket" in base_actual.columns and "bracket" in fila:
                 filtro = filtro & (base_actual["bracket"].astype(str) == str(fila["bracket"]))
 
+            # 🔥 alinear columnas
+            fila_dict = fila.to_dict()
+            for col in base_actual.columns:
+                if col not in fila_dict:
+                    fila_dict[col] = None
+
+            fila_ok = pd.Series(fila_dict)[base_actual.columns]
+
             if filtro.any():
-                base_actual.loc[filtro, :] = fila
-
-                cambios.append({
-                    "fecha": datetime.datetime.now(),
-                    "id_cuenta": fila["id_cuenta"],
-                    "cliente": fila["cliente"],
-                    "accion": "modificado"
-                })
-
+                base_actual.loc[filtro, :] = fila_ok.values
+                accion = "modificado"
             else:
-                base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
+                base_actual = pd.concat([base_actual, pd.DataFrame([fila_ok])], ignore_index=True)
+                accion = "nuevo"
 
-                cambios.append({
-                    "fecha": datetime.datetime.now(),
-                    "id_cuenta": fila["id_cuenta"],
-                    "cliente": fila["cliente"],
-                    "accion": "nuevo"
-                })
+            cambios.append({
+                "fecha": datetime.datetime.now(),
+                "id_cuenta": fila["id_cuenta"],
+                "cliente": fila["cliente"],
+                "accion": accion
+            })
 
         subir_excel_github(base_actual, FILE_BASE, "update base")
 
-        historial_actual = leer_excel_github(FILE_HISTORIAL)
-        historial_actual = pd.concat([historial_actual, pd.DataFrame(cambios)])
+        hist = leer_excel_github(FILE_HISTORIAL)
+        hist = pd.concat([hist, pd.DataFrame(cambios)])
 
-        subir_excel_github(historial_actual, FILE_HISTORIAL, "update historial")
+        subir_excel_github(hist, FILE_HISTORIAL, "update historial")
 
         st.success("Guardado en GitHub + historial 🚀")
 
 # -----------------------------
 # VISTAS
 # -----------------------------
+if st.session_state.page == "inicio":
 
-if st.session_state.pagina == "inicio":
+    st.header("Dashboard")
+    c1,c2,c3 = st.columns(3)
 
-    st.header("📊 Dashboard")
+    c1.metric("Clientes", df["cliente"].nunique())
+    c2.metric("Registros", len(df))
+    c3.metric("Productos", df["producto"].nunique())
 
-    col1,col2,col3 = st.columns(3)
-
-    col1.metric("Clientes", df["cliente"].nunique())
-    col2.metric("Registros", len(df))
-    col3.metric("Productos", df["producto"].nunique())
-
-elif st.session_state.pagina == "payin":
+elif st.session_state.page == "payin":
     mostrar_tabla(df[df["producto"]=="PAYIN"])
 
-elif st.session_state.pagina == "payout":
+elif st.session_state.page == "payout":
     mostrar_tabla(df[df["producto"]=="PAYOUT"])
 
-elif st.session_state.pagina == "paas":
+elif st.session_state.page == "paas":
     mostrar_tabla(df[df["producto"].isin(["PAAS","PASS"])])
 
-elif st.session_state.pagina == "licencias":
+elif st.session_state.page == "licencias":
     mostrar_tabla(df[df["producto"]=="LICENCIA"])
 
-elif st.session_state.pagina == "interconexion":
+elif st.session_state.page == "inter":
     mostrar_tabla(df[df["producto"]=="INTERCONEXION"])
 
-elif st.session_state.pagina == "historial":
+elif st.session_state.page == "hist":
     st.dataframe(historial)
