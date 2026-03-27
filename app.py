@@ -74,15 +74,16 @@ if archivo is not None:
 
     df_nuevo.columns = df_nuevo.columns.str.strip().str.lower()
 
-    # 🔥 BOTÓN QUE REEMPLAZA TODO
-    if st.button("🚨 REEMPLAZAR BASE COMPLETA"):
-
-        df_nuevo.to_excel(archivo_base, index=False)
-
-        historial = historial.iloc[0:0]  # limpia historial
+    if st.button("🧹 LIMPIAR BASE COMPLETA"):
+        pd.DataFrame().to_excel(archivo_base, index=False)
+        historial = historial.iloc[0:0]
         historial.to_excel(archivo_historial, index=False)
+        st.success("Base limpiada")
+        st.rerun()
 
-        st.success("✅ Base reemplazada completamente")
+    if st.button("📥 Cargar esta como nueva base"):
+        df_nuevo.to_excel(archivo_base, index=False)
+        st.success("Nueva base cargada")
         st.rerun()
 
 # -----------------------------
@@ -93,20 +94,34 @@ def formatear_para_mostrar(df):
 
     df = df.copy()
 
+    def safe_percent(x):
+        try:
+            if isinstance(x, str) and "%" in x:
+                return x
+            if pd.notnull(x):
+                return f"{float(x)*100:.2f}%"
+        except:
+            return x
+        return x
+
+    def safe_money(x, simbolo="S/"):
+        try:
+            if isinstance(x, str) and ("S/" in x or "$" in x):
+                return x
+            if pd.notnull(x):
+                return f"{simbolo} {float(x):.2f}"
+        except:
+            return x
+        return x
+
     if "comision_variable" in df.columns:
-        df["comision_variable"] = df["comision_variable"].apply(
-            lambda x: f"{float(x)*100:.2f}%" if pd.notnull(x) else x
-        )
+        df["comision_variable"] = df["comision_variable"].apply(safe_percent)
 
     if "comision_fija" in df.columns:
-        df["comision_fija"] = df["comision_fija"].apply(
-            lambda x: f"S/ {float(x):.2f}" if pd.notnull(x) else x
-        )
+        df["comision_fija"] = df["comision_fija"].apply(lambda x: safe_money(x, "S/"))
 
     if "comision_minima_pen" in df.columns:
-        df["comision_minima_pen"] = df["comision_minima_pen"].apply(
-            lambda x: f"S/ {float(x):.2f}" if pd.notnull(x) else x
-        )
+        df["comision_minima_pen"] = df["comision_minima_pen"].apply(lambda x: safe_money(x, "S/"))
 
     return df
 
@@ -120,12 +135,16 @@ if st.sidebar.button("Cerrar sesión"):
     st.session_state["auth"] = False
     st.rerun()
 
-buscar = st.sidebar.text_input("Buscar cliente")
+buscar_id = st.sidebar.text_input("Buscar por ID CUENTA")
+buscar_cliente = st.sidebar.text_input("Buscar por nombre")
 
 df = base_guardada.copy()
 
-if buscar:
-    df = df[df["cliente"].astype(str).str.contains(buscar, case=False)]
+if buscar_id:
+    df = df[df["id_cuenta"].astype(str).str.contains(buscar_id)]
+
+if buscar_cliente:
+    df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
 # NAVEGACIÓN
@@ -156,7 +175,6 @@ def mostrar_tabla(data):
         st.warning("No hay datos")
         return
 
-    # 🔥 SOLO VISUAL (no borra base)
     data = data.loc[~data.isna().all(axis=1)]
 
     data_display = formatear_para_mostrar(data)
@@ -213,14 +231,44 @@ def mostrar_tabla(data):
         base_actual.to_excel(archivo_base, index=False)
         historial.to_excel(archivo_historial, index=False)
 
-        st.success("✅ Cambios guardados")
+        st.success("Cambios guardados")
+
+# -----------------------------
+# DASHBOARD
+# -----------------------------
+
+def limpiar_num(x):
+    try:
+        if isinstance(x, str):
+            x = x.replace("%","").replace("S/","").replace("$","").strip()
+        return float(x)
+    except:
+        return None
 
 # -----------------------------
 # VISTAS
 # -----------------------------
 
 if st.session_state.pagina == "inicio":
-    mostrar_tabla(df)
+
+    st.header("📊 Dashboard")
+
+    df_dash = base_guardada.copy()
+
+    if "comision_variable" in df_dash.columns:
+        df_dash["comision_variable_num"] = df_dash["comision_variable"].apply(limpiar_num)
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Clientes", df_dash["cliente"].nunique())
+    col2.metric("Registros", len(df_dash))
+    col3.metric("Promedio Fee", f"{df_dash['comision_variable_num'].mean():.2f}%" if "comision_variable_num" in df_dash else "0%")
+    col4.metric("Productos", df_dash["producto"].nunique())
+
+    st.divider()
+
+    st.subheader("Distribución por producto")
+    st.bar_chart(df_dash["producto"].value_counts())
 
 elif st.session_state.pagina == "payin":
     mostrar_tabla(df[df["producto"]=="PAYIN"])
