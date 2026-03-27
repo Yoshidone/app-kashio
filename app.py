@@ -21,7 +21,6 @@ def normalizar_columnas(df):
         "bracket": ["bracket","rango"],
         "id_cuenta": ["id_cuenta","id cuenta","cuenta"],
         "cliente": ["cliente","client","nombre"],
-        "ruc": ["ruc"],
         "comision_variable": ["comision_variable","fee"],
         "comision_fija": ["comision_fija"],
         "comision_minima_pen": ["comision_minima_pen"]
@@ -38,15 +37,10 @@ def normalizar_columnas(df):
 # LOGIN
 # -----------------------------
 
-USERS = {
-    "yoshira": "1234",
-    "conta": "kashio2026",
-    "admin": "admin123"
-}
+USERS = {"yoshira": "1234"}
 
 def check_login():
-    st.title("🔐 Acceso al Sistema Kashio")
-
+    st.title("🔐 Acceso")
     user = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
 
@@ -55,7 +49,7 @@ def check_login():
             st.session_state["auth"] = True
             st.session_state["usuario"] = user
         else:
-            st.error("❌ Credenciales incorrectas")
+            st.error("Error")
 
 if "auth" not in st.session_state or not st.session_state["auth"]:
     check_login()
@@ -77,67 +71,15 @@ if os.path.exists(archivo_base):
 else:
     base_guardada = pd.DataFrame()
 
-if os.path.exists(archivo_historial):
-    historial = pd.read_excel(archivo_historial)
-else:
-    historial = pd.DataFrame(columns=[
-        "fecha","id_cuenta","cliente","producto","tipo","bracket",
-        "valor_anterior","valor_nuevo"
-    ])
-
 # -----------------------------
-# UPLOAD
+# ALERTAS + DUPLICADOS
 # -----------------------------
 
-archivo = st.file_uploader("📂 Sube tu base tarifaria", type=["xlsx","csv"])
-
-if archivo is not None:
-
-    df_nuevo = pd.read_excel(archivo)
-    df_nuevo = normalizar_columnas(df_nuevo)
-
-    colA, colB = st.columns(2)
-
-    if colA.button("🧹 Limpiar base completa"):
-        pd.DataFrame().to_excel(archivo_base, index=False)
-        historial.iloc[0:0].to_excel(archivo_historial, index=False)
-        st.success("Base limpiada")
-        st.rerun()
-
-    if colB.button("📥 Cargar como nueva base"):
-        df_nuevo.to_excel(archivo_base, index=False)
-        st.success("Base cargada")
-        st.rerun()
-
-# -----------------------------
-# ALERTAS
-# -----------------------------
-
-def generar_alertas(df):
-
-    alertas = []
-
-    def limpiar(x):
-        try:
-            if isinstance(x, str):
-                x = x.replace("%","")
-            return float(x)
-        except:
-            return None
-
-    if "comision_variable" in df.columns:
-        df["fee"] = df["comision_variable"].apply(limpiar)
-
-        if (df["fee"] == 0).any():
-            alertas.append("🔴 Hay comisiones en 0")
-
-        if (df["fee"] > 5).any():
-            alertas.append("⚠️ Comisiones muy altas")
-
-    if df.duplicated(subset=["id_cuenta","producto","tipo","bracket"]).any():
-        alertas.append("⚠️ Hay duplicados")
-
-    return alertas
+def detectar_duplicados(df):
+    return df[df.duplicated(
+        subset=["id_cuenta","producto","tipo","bracket"],
+        keep=False
+    )]
 
 # -----------------------------
 # SIDEBAR
@@ -160,7 +102,7 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# NAVEGACIÓN (TU ORIGINAL)
+# NAV (TU ORIGINAL)
 # -----------------------------
 
 if "pagina" not in st.session_state:
@@ -191,28 +133,60 @@ def mostrar_tabla(data):
     data = data.loc[~data.isna().all(axis=1)]
     data = data.loc[:, ~data.isna().all()]
 
+    duplicados = detectar_duplicados(data)
+
+    def highlight(row):
+        if row.name in duplicados.index:
+            return ['background-color: #ffcccc'] * len(row)
+        return [''] * len(row)
+
+    st.subheader("✏️ Edita tu base")
+
+    st.dataframe(data.style.apply(highlight, axis=1), use_container_width=True)
+
     editado = st.data_editor(data, use_container_width=True)
+
+    # -------------------------
+    # SELECCIÓN DE DUPLICADOS
+    # -------------------------
+
+    if not duplicados.empty:
+
+        st.subheader("🔴 Duplicados detectados (elige cuál eliminar)")
+
+        duplicados["eliminar"] = False
+
+        seleccion = st.data_editor(duplicados, use_container_width=True)
+
+        if st.button("🗑️ Eliminar seleccionados"):
+
+            a_eliminar = seleccion[seleccion["eliminar"] == True]
+
+            nueva_base = data.copy()
+
+            for _, fila in a_eliminar.iterrows():
+                filtro = (
+                    (nueva_base["id_cuenta"] == fila["id_cuenta"]) &
+                    (nueva_base["producto"] == fila["producto"]) &
+                    (nueva_base["tipo"] == fila["tipo"]) &
+                    (nueva_base["bracket"] == fila["bracket"])
+                )
+                nueva_base = nueva_base[~filtro]
+
+            nueva_base.to_excel(archivo_base, index=False)
+
+            st.success("Duplicados eliminados correctamente")
+            st.rerun()
+
+    # -------------------------
+    # GUARDAR CAMBIOS
+    # -------------------------
 
     if st.button("💾 Guardar cambios"):
 
-        base_actual = normalizar_columnas(pd.read_excel(archivo_base))
+        editado.to_excel(archivo_base, index=False)
 
-        for _, fila in editado.iterrows():
-
-            filtro = (
-                (base_actual["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
-                (base_actual["producto"] == fila["producto"]) &
-                (base_actual["tipo"] == fila["tipo"]) &
-                (base_actual["bracket"].astype(str) == str(fila["bracket"]))
-            )
-
-            if filtro.any():
-                base_actual.loc[filtro, :] = fila
-            else:
-                base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
-
-        base_actual.to_excel(archivo_base, index=False)
-        st.success("Guardado correctamente")
+        st.success("Cambios guardados")
 
 # -----------------------------
 # VISTAS
@@ -228,13 +202,10 @@ if st.session_state.pagina == "inicio":
     col2.metric("Registros", len(df))
     col3.metric("Productos", df["producto"].nunique())
 
-    st.subheader("🚨 Alertas")
+    duplicados = detectar_duplicados(df)
 
-    alertas = generar_alertas(df)
-
-    if alertas:
-        for a in alertas:
-            st.warning(a)
+    if not duplicados.empty:
+        st.warning(f"⚠️ Hay {len(duplicados)} registros duplicados")
     else:
         st.success("Todo OK")
 
@@ -252,6 +223,3 @@ elif st.session_state.pagina == "licencias":
 
 elif st.session_state.pagina == "interconexion":
     mostrar_tabla(df[df["producto"]=="INTERCONEXION"])
-
-elif st.session_state.pagina == "historial":
-    st.dataframe(historial)
