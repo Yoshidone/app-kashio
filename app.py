@@ -2,14 +2,65 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
+import requests
+import base64
+from io import BytesIO
 
 st.set_page_config(page_title="Sistema de Control de Facturación Kashio", layout="wide")
 
-archivo_base = "base_tarifas_guardada.xlsx"
-archivo_historial = "historial_tarifas.xlsx"
+# -----------------------------
+# 🔐 GITHUB CONFIG
+# -----------------------------
+
+GITHUB_TOKEN = st.secrets["TOKEN_GITHUB"]
+REPO = "Yoshidone/app-kashio"
+
+FILE_BASE = "DASH.xlsx"
+FILE_HISTORIAL = "historial_cambios.xlsx"
 
 # -----------------------------
-# NORMALIZADOR
+# FUNCIONES GITHUB
+# -----------------------------
+
+def leer_excel_github(file_path):
+    url = f"https://api.github.com/repos/{REPO}/contents/{file_path}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+
+    r = requests.get(url, headers=headers)
+
+    if r.status_code == 200:
+        content = base64.b64decode(r.json()["content"])
+        return pd.read_excel(BytesIO(content))
+    else:
+        return pd.DataFrame()
+
+def subir_excel_github(df, file_path, mensaje):
+    url = f"https://api.github.com/repos/{REPO}/contents/{file_path}"
+
+    buffer = BytesIO()
+    df.to_excel(buffer, index=False)
+    content = base64.b64encode(buffer.getvalue()).decode()
+
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+
+    r = requests.get(url, headers=headers)
+
+    sha = None
+    if r.status_code == 200:
+        sha = r.json()["sha"]
+
+    data = {
+        "message": mensaje,
+        "content": content
+    }
+
+    if sha:
+        data["sha"] = sha
+
+    requests.put(url, json=data, headers=headers)
+
+# -----------------------------
+# NORMALIZADOR (TUYO)
 # -----------------------------
 
 def normalizar_columnas(df):
@@ -35,7 +86,7 @@ def normalizar_columnas(df):
     return df
 
 # -----------------------------
-# LOGIN
+# LOGIN (TUYO)
 # -----------------------------
 
 USERS = {
@@ -69,75 +120,11 @@ st.title("💖 Sistema de Control de Facturación Kashio")
 st.subheader(f"Bienvenida {st.session_state['usuario']} 👋")
 
 # -----------------------------
-# CARGA BASE
+# CARGA DESDE GITHUB 🔥
 # -----------------------------
 
-if os.path.exists(archivo_base):
-    base_guardada = normalizar_columnas(pd.read_excel(archivo_base))
-else:
-    base_guardada = pd.DataFrame()
-
-if os.path.exists(archivo_historial):
-    historial = pd.read_excel(archivo_historial)
-else:
-    historial = pd.DataFrame(columns=[
-        "fecha","id_cuenta","cliente","producto","tipo","bracket",
-        "valor_anterior","valor_nuevo"
-    ])
-
-# -----------------------------
-# UPLOAD
-# -----------------------------
-
-archivo = st.file_uploader("📂 Sube tu base tarifaria", type=["xlsx","csv"])
-
-if archivo is not None:
-
-    df_nuevo = pd.read_excel(archivo)
-    df_nuevo = normalizar_columnas(df_nuevo)
-
-    colA, colB = st.columns(2)
-
-    if colA.button("🧹 Limpiar base completa"):
-        pd.DataFrame().to_excel(archivo_base, index=False)
-        historial.iloc[0:0].to_excel(archivo_historial, index=False)
-        st.success("Base limpiada")
-        st.rerun()
-
-    if colB.button("📥 Cargar como nueva base"):
-        df_nuevo.to_excel(archivo_base, index=False)
-        st.success("Base cargada")
-        st.rerun()
-
-# -----------------------------
-# ALERTAS
-# -----------------------------
-
-def generar_alertas(df):
-
-    alertas = []
-
-    def limpiar(x):
-        try:
-            if isinstance(x, str):
-                x = x.replace("%","")
-            return float(x)
-        except:
-            return None
-
-    if "comision_variable" in df.columns:
-        df["fee"] = df["comision_variable"].apply(limpiar)
-
-        if (df["fee"] == 0).any():
-            alertas.append("🔴 Hay comisiones en 0")
-
-        if (df["fee"] > 5).any():
-            alertas.append("⚠️ Comisiones muy altas")
-
-    if df.duplicated(subset=["id_cuenta","producto","tipo","bracket"]).any():
-        alertas.append("⚠️ Hay duplicados")
-
-    return alertas
+base_guardada = normalizar_columnas(leer_excel_github(FILE_BASE))
+historial = leer_excel_github(FILE_HISTORIAL)
 
 # -----------------------------
 # SIDEBAR
@@ -160,7 +147,7 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# NAVEGACIÓN (TU ORIGINAL)
+# NAVEGACIÓN (TUYA)
 # -----------------------------
 
 if "pagina" not in st.session_state:
@@ -179,7 +166,7 @@ if col7.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE
+# TABLA EDITABLE (TUYA + GITHUB)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -195,7 +182,8 @@ def mostrar_tabla(data):
 
     if st.button("💾 Guardar cambios"):
 
-        base_actual = normalizar_columnas(pd.read_excel(archivo_base))
+        base_actual = data.copy()
+        cambios = []
 
         for _, fila in editado.iterrows():
 
@@ -208,11 +196,33 @@ def mostrar_tabla(data):
 
             if filtro.any():
                 base_actual.loc[filtro, :] = fila
+
+                cambios.append({
+                    "fecha": datetime.datetime.now(),
+                    "id_cuenta": fila["id_cuenta"],
+                    "cliente": fila["cliente"],
+                    "accion": "modificado"
+                })
+
             else:
                 base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
 
-        base_actual.to_excel(archivo_base, index=False)
-        st.success("Guardado correctamente")
+                cambios.append({
+                    "fecha": datetime.datetime.now(),
+                    "id_cuenta": fila["id_cuenta"],
+                    "cliente": fila["cliente"],
+                    "accion": "nuevo"
+                })
+
+        # 🔥 GUARDAR EN GITHUB
+        subir_excel_github(base_actual, FILE_BASE, "update base")
+
+        historial_actual = leer_excel_github(FILE_HISTORIAL)
+        historial_actual = pd.concat([historial_actual, pd.DataFrame(cambios)])
+
+        subir_excel_github(historial_actual, FILE_HISTORIAL, "update historial")
+
+        st.success("Guardado en GitHub + historial 🚀")
 
 # -----------------------------
 # VISTAS
@@ -227,16 +237,6 @@ if st.session_state.pagina == "inicio":
     col1.metric("Clientes", df["cliente"].nunique())
     col2.metric("Registros", len(df))
     col3.metric("Productos", df["producto"].nunique())
-
-    st.subheader("🚨 Alertas")
-
-    alertas = generar_alertas(df)
-
-    if alertas:
-        for a in alertas:
-            st.warning(a)
-    else:
-        st.success("Todo OK")
 
 elif st.session_state.pagina == "payin":
     mostrar_tabla(df[df["producto"]=="PAYIN"])
