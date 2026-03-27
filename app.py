@@ -67,6 +67,26 @@ def normalizar_columnas(df):
     return df
 
 # -----------------------------
+# 🔥 FILTRO SOLO VISUAL
+# -----------------------------
+
+def filtrar_filas_validas(df):
+
+    columnas_monto = [
+        "comision_variable",
+        "comision_fija",
+        "comision_minima_usd",
+        "comision_minima_pen"
+    ]
+
+    columnas_monto = [c for c in columnas_monto if c in df.columns]
+
+    if not columnas_monto:
+        return df
+
+    return df.dropna(subset=columnas_monto, how="all")
+
+# -----------------------------
 # LOGIN
 # -----------------------------
 
@@ -108,7 +128,7 @@ base_guardada = normalizar_columnas(leer_excel_github(FILE_BASE))
 historial = leer_excel_github(FILE_HISTORIAL)
 
 # -----------------------------
-# 📂 UPLOAD (AHORA CON GITHUB)
+# UPLOAD
 # -----------------------------
 
 archivo = st.file_uploader("📂 Sube tu base tarifaria", type=["xlsx","csv"])
@@ -176,7 +196,7 @@ if col7.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE + HISTORIAL
+# TABLA EDITABLE
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -185,7 +205,10 @@ def mostrar_tabla(data):
         st.warning("No hay datos")
         return
 
-    editado = st.data_editor(data, use_container_width=True)
+    # 🔥 FILTRO VISUAL
+    data_filtrada = filtrar_filas_validas(data)
+
+    editado = st.data_editor(data_filtrada, use_container_width=True)
 
     if st.button("💾 Guardar cambios"):
 
@@ -197,9 +220,12 @@ def mostrar_tabla(data):
             filtro = (
                 (base_actual["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
                 (base_actual["producto"] == fila["producto"]) &
-                (base_actual["tipo"] == fila["tipo"]) &
-                (base_actual["bracket"].astype(str) == str(fila["bracket"]))
+                (base_actual["tipo"] == fila["tipo"])
             )
+
+            # 🔥 solo si existe bracket
+            if "bracket" in base_actual.columns and "bracket" in fila:
+                filtro = filtro & (base_actual["bracket"].astype(str) == str(fila["bracket"]))
 
             if filtro.any():
                 base_actual.loc[filtro, :] = fila
@@ -221,10 +247,8 @@ def mostrar_tabla(data):
                     "accion": "nuevo"
                 })
 
-        # 🔥 GUARDAR BASE
         subir_excel_github(base_actual, FILE_BASE, "update base")
 
-        # 🔥 HISTORIAL
         historial_actual = leer_excel_github(FILE_HISTORIAL)
         historial_actual = pd.concat([historial_actual, pd.DataFrame(cambios)])
 
