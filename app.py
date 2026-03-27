@@ -153,6 +153,36 @@ df["producto"] = df["producto"].astype(str).str.upper().str.strip()
 df["producto"] = df["producto"].replace("INTERCONEXIÓN","INTERCONEXION")
 
 # -----------------------------
+# FORMATO VISUAL (🔥 NUEVO)
+# -----------------------------
+
+def formatear_para_mostrar(df):
+
+    df = df.copy()
+
+    if "comision_variable" in df.columns:
+        df["comision_variable"] = df["comision_variable"].apply(
+            lambda x: f"{float(x)*100:.2f}%" if pd.notnull(x) and str(x) not in ["None","nan",""] else x
+        )
+
+    if "comision_fija" in df.columns:
+        df["comision_fija"] = df["comision_fija"].apply(
+            lambda x: f"S/ {float(x):.2f}" if pd.notnull(x) and str(x) not in ["None","nan",""] else x
+        )
+
+    if "comision_minima_pen" in df.columns:
+        df["comision_minima_pen"] = df["comision_minima_pen"].apply(
+            lambda x: f"S/ {float(x):.2f}" if pd.notnull(x) and str(x) not in ["None","nan",""] else x
+        )
+
+    if "comision_minima_usd" in df.columns:
+        df["comision_minima_usd"] = df["comision_minima_usd"].apply(
+            lambda x: f"$ {float(x):.2f}" if pd.notnull(x) and str(x) not in ["None","nan",""] else x
+        )
+
+    return df
+
+# -----------------------------
 # SIDEBAR
 # -----------------------------
 
@@ -172,27 +202,7 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# Navegación
-# -----------------------------
-
-if "pagina" not in st.session_state:
-    st.session_state.pagina = "inicio"
-
-col1,col2,col3,col4,col5,col6,col7,col8 = st.columns(8)
-
-if col1.button("Dashboard"): st.session_state.pagina="inicio"
-if col2.button("Licencias"): st.session_state.pagina="licencias"
-if col3.button("PAAS"): st.session_state.pagina="paas"
-if col4.button("Payouts"): st.session_state.pagina="payouts"
-if col5.button("Payin"): st.session_state.pagina="payin"
-if col6.button("Notificaciones"): st.session_state.pagina="notificaciones"
-if col7.button("Interconexión"): st.session_state.pagina="interconexion"
-if col8.button("Historial"): st.session_state.pagina="historial"
-
-st.divider()
-
-# -----------------------------
-# TABLA EDITABLE (FIX APLICADO)
+# TABLA EDITABLE (FIX + FORMATO)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -204,23 +214,30 @@ def mostrar_tabla(data):
     data = data.dropna(how="all")
     data = data.dropna(axis=1, how="all")
 
-    editado = st.data_editor(data, use_container_width=True, num_rows="dynamic")
+    data_display = formatear_para_mostrar(data)
+
+    editado = st.data_editor(data_display, use_container_width=True, num_rows="dynamic")
 
     if st.button("Guardar cambios"):
 
         base_actual = pd.read_excel(archivo_base)
 
-        # 🔥 FIX ERROR KEY
         for col in ["id_cuenta","producto","tipo","bracket"]:
             if col not in base_actual.columns:
                 base_actual[col] = ""
-
-        for col in ["id_cuenta","producto","tipo","bracket"]:
             if col not in editado.columns:
                 editado[col] = ""
 
         base_actual["id_cuenta"] = base_actual["id_cuenta"].astype(str)
         editado["id_cuenta"] = editado["id_cuenta"].astype(str)
+
+        # 🔥 quitar formato antes de guardar
+        def limpiar(x):
+            if isinstance(x, str):
+                x = x.replace("%","").replace("S/","").replace("$","").strip()
+            return x
+
+        editado = editado.applymap(limpiar)
 
         for _, fila in editado.iterrows():
 
@@ -232,10 +249,12 @@ def mostrar_tabla(data):
             )
 
             if filtro.any():
-                base_actual.loc[filtro, :] = fila
+                for col in base_actual.columns:
+                    if col in fila:
+                        base_actual.loc[filtro, col] = fila[col]
 
         base_actual.to_excel(archivo_base, index=False)
-        st.success("✅ Cambios guardados")
+        st.success("✅ Cambios guardados correctamente")
 
 # -----------------------------
 # VISTAS
