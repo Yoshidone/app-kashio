@@ -153,7 +153,7 @@ df["producto"] = df["producto"].astype(str).str.upper().str.strip()
 df["producto"] = df["producto"].replace("INTERCONEXIÓN","INTERCONEXION")
 
 # -----------------------------
-# FORMATO VISUAL (🔥 NUEVO)
+# FORMATO VISUAL
 # -----------------------------
 
 def formatear_para_mostrar(df):
@@ -202,7 +202,27 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# TABLA EDITABLE (FIX + FORMATO)
+# NAVEGACIÓN (FIX)
+# -----------------------------
+
+if "pagina" not in st.session_state:
+    st.session_state.pagina = "inicio"
+
+col1,col2,col3,col4,col5,col6,col7,col8 = st.columns(8)
+
+if col1.button("Dashboard"): st.session_state.pagina="inicio"
+if col2.button("Licencias"): st.session_state.pagina="licencias"
+if col3.button("PAAS"): st.session_state.pagina="paas"
+if col4.button("Payouts"): st.session_state.pagina="payouts"
+if col5.button("Payin"): st.session_state.pagina="payin"
+if col6.button("Notificaciones"): st.session_state.pagina="notificaciones"
+if col7.button("Interconexión"): st.session_state.pagina="interconexion"
+if col8.button("Historial"): st.session_state.pagina="historial"
+
+st.divider()
+
+# -----------------------------
+# TABLA EDITABLE
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -231,7 +251,6 @@ def mostrar_tabla(data):
         base_actual["id_cuenta"] = base_actual["id_cuenta"].astype(str)
         editado["id_cuenta"] = editado["id_cuenta"].astype(str)
 
-        # 🔥 quitar formato antes de guardar
         def limpiar(x):
             if isinstance(x, str):
                 x = x.replace("%","").replace("S/","").replace("$","").strip()
