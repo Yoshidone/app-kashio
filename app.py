@@ -106,7 +106,7 @@ def formatear_para_mostrar(df):
 
     def safe_money(x, simbolo="S/"):
         try:
-            if isinstance(x, str) and ("S/" in x or "$" in x):
+            if isinstance(x, str):
                 return x
             if pd.notnull(x):
                 return f"{simbolo} {float(x):.2f}"
@@ -166,7 +166,7 @@ if col7.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA
+# TABLA LIMPIA (🔥 FIX VISUAL)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -175,7 +175,13 @@ def mostrar_tabla(data):
         st.warning("No hay datos")
         return
 
+    data = data.copy()
+
+    # 🔥 eliminar filas vacías
     data = data.loc[~data.isna().all(axis=1)]
+
+    # 🔥 eliminar columnas vacías (LO QUE QUERÍAS)
+    data = data.loc[:, ~data.isna().all()]
 
     data_display = formatear_para_mostrar(data)
 
@@ -202,29 +208,9 @@ def mostrar_tabla(data):
             )
 
             if filtro.any():
-
-                fila_base = base_actual.loc[filtro].iloc[0]
-
                 for col in base_actual.columns:
-
-                    viejo = fila_base.get(col, "")
-                    nuevo = fila.get(col, "")
-
-                    if str(viejo) != str(nuevo):
-
-                        historial.loc[len(historial)] = {
-                            "fecha": datetime.datetime.now(),
-                            "id_cuenta": fila["id_cuenta"],
-                            "cliente": fila.get("cliente",""),
-                            "producto": fila["producto"],
-                            "tipo": fila["tipo"],
-                            "bracket": fila["bracket"],
-                            "valor_anterior": f"{col}: {viejo}",
-                            "valor_nuevo": f"{col}: {nuevo}"
-                        }
-
-                        base_actual.loc[filtro, col] = nuevo
-
+                    if col in fila:
+                        base_actual.loc[filtro, col] = fila[col]
             else:
                 base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
 
