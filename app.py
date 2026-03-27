@@ -2,11 +2,38 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
+import requests
+import base64
+from io import BytesIO
 
 st.set_page_config(page_title="Sistema de Control de Facturación Kashio", layout="wide")
 
 archivo_base = "base_tarifas_guardada.xlsx"
 archivo_historial = "historial_tarifas.xlsx"
+
+# -----------------------------
+# 🔐 GITHUB CONFIG
+# -----------------------------
+GITHUB_TOKEN = st.secrets["TOKEN_GITHUB"]
+REPO = "Yoshidone/app-kashio"
+
+def subir_excel_github(df, file_path, mensaje):
+    url = f"https://api.github.com/repos/{REPO}/contents/{file_path}"
+
+    buffer = BytesIO()
+    df.to_excel(buffer, index=False)
+    content = base64.b64encode(buffer.getvalue()).decode()
+
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    r = requests.get(url, headers=headers)
+
+    sha = r.json()["sha"] if r.status_code == 200 else None
+
+    data = {"message": mensaje, "content": content}
+    if sha:
+        data["sha"] = sha
+
+    requests.put(url, json=data, headers=headers)
 
 # -----------------------------
 # NORMALIZADOR
@@ -84,17 +111,20 @@ else:
 archivo = st.file_uploader("📂 Sube tu base tarifaria", type=["xlsx","csv"])
 
 if archivo is not None:
+
     df_nuevo = normalizar_columnas(pd.read_excel(archivo))
 
     colA, colB = st.columns(2)
 
     if colA.button("🧹 Limpiar base completa"):
         pd.DataFrame().to_excel(archivo_base, index=False)
+        subir_excel_github(pd.DataFrame(), archivo_base, "limpiar base")
         st.success("Base limpiada")
         st.rerun()
 
     if colB.button("📥 Cargar como nueva base"):
         df_nuevo.to_excel(archivo_base, index=False)
+        subir_excel_github(df_nuevo, archivo_base, "nueva base")
         st.success("Base cargada")
         st.rerun()
 
@@ -114,43 +144,11 @@ if "producto" in df.columns:
 if "id_cuenta" in df.columns:
     df["id_cuenta"] = df["id_cuenta"].astype(str).str.replace(".0","", regex=False)
 
-filtro_activo = False
-
 if buscar_id:
-    filtro_activo = True
     df = df[df["id_cuenta"] == str(buscar_id).strip()]
 
 if buscar_cliente:
-    filtro_activo = True
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
-
-if filtro_activo:
-    if df.empty:
-        st.warning("⚠️ No se encontraron resultados")
-    else:
-        st.success(f"✅ {len(df)} resultado(s)")
-
-# -----------------------------
-# ALERTAS
-# -----------------------------
-def generar_alertas(df):
-
-    alertas = []
-
-    if "comision_variable" in df.columns:
-        df["fee"] = pd.to_numeric(df["comision_variable"], errors="coerce")
-
-        if (df["fee"] == 0).any():
-            alertas.append("🔴 Comisiones en 0")
-
-        if (df["fee"] > 5).any():
-            alertas.append("⚠️ Comisiones altas")
-
-    if {"id_cuenta","producto","tipo","bracket"}.issubset(df.columns):
-        if df.duplicated(subset=["id_cuenta","producto","tipo","bracket"]).any():
-            alertas.append("🔴 Duplicados detectados")
-
-    return alertas
 
 # -----------------------------
 # NAVEGACIÓN
@@ -171,7 +169,7 @@ if col7.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA
+# TABLA EDITABLE + HISTORIAL
 # -----------------------------
 def mostrar_tabla(data):
 
@@ -179,22 +177,12 @@ def mostrar_tabla(data):
         st.warning("No hay datos")
         return
 
-    # 🔥 limpiar filas vacías
-    data = data.dropna(how="all")
-    data = data.dropna(axis=1, how="all")
-
-    # 🔴 detectar duplicados
-    if {"id_cuenta","producto","tipo","bracket"}.issubset(data.columns):
-        duplicados = data.duplicated(subset=["id_cuenta","producto","tipo","bracket"], keep=False)
-        st.write("🔴 Duplicados:", duplicados.sum())
-
-    st.caption("🔍 Resultados")
-
     editado = st.data_editor(data, use_container_width=True)
 
     if st.button("💾 Guardar cambios"):
 
         base_actual = normalizar_columnas(pd.read_excel(archivo_base))
+        cambios = []
 
         for _, fila in editado.iterrows():
 
@@ -206,15 +194,42 @@ def mostrar_tabla(data):
             )
 
             if filtro.any():
+
+                fila_antigua = base_actual.loc[filtro].iloc[0].to_dict()
+
+                for col in fila.index:
+                    if str(fila_antigua.get(col)) != str(fila[col]):
+                        cambios.append({
+                            "fecha": datetime.datetime.now(),
+                            "usuario": st.session_state["usuario"],
+                            "id_cuenta": fila["id_cuenta"],
+                            "columna": col,
+                            "valor_anterior": fila_antigua.get(col),
+                            "valor_nuevo": fila[col]
+                        })
+
                 base_actual.loc[filtro, :] = fila
+
             else:
                 base_actual = pd.concat([base_actual, pd.DataFrame([fila])], ignore_index=True)
 
         base_actual.to_excel(archivo_base, index=False)
-        st.success("Guardado correctamente")
+        subir_excel_github(base_actual, archivo_base, "update base")
+
+        if cambios:
+            hist_df = pd.DataFrame(cambios)
+
+            if os.path.exists(archivo_historial):
+                hist_actual = pd.read_excel(archivo_historial)
+                hist_df = pd.concat([hist_actual, hist_df], ignore_index=True)
+
+            hist_df.to_excel(archivo_historial, index=False)
+            subir_excel_github(hist_df, archivo_historial, "update historial")
+
+        st.success("Guardado con historial + GitHub 🚀")
 
 # -----------------------------
-# VISTAS
+# DASHBOARD
 # -----------------------------
 if st.session_state.pagina == "inicio":
 
@@ -226,15 +241,14 @@ if st.session_state.pagina == "inicio":
     col2.metric("Registros", len(df))
     col3.metric("Productos", df["producto"].nunique())
 
-    st.subheader("🚨 Alertas")
+    st.subheader("📊 Productos")
+    if "producto" in df.columns:
+        st.bar_chart(df["producto"].value_counts())
 
-    alertas = generar_alertas(df)
-
-    if alertas:
-        for a in alertas:
-            st.warning(a)
-    else:
-        st.success("Todo OK")
+    if "comision_variable" in df.columns:
+        df["fee"] = pd.to_numeric(df["comision_variable"], errors="coerce")
+        st.subheader("📈 Comisiones")
+        st.line_chart(df["fee"])
 
 elif st.session_state.pagina == "payin":
     mostrar_tabla(df[df["producto"]=="PAYIN"])
