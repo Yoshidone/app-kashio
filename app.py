@@ -140,16 +140,6 @@ def generar_alertas(df):
     return alertas
 
 # -----------------------------
-# DUPLICADOS DETALLE
-# -----------------------------
-
-def obtener_duplicados(df):
-    return df[df.duplicated(
-        subset=["id_cuenta","producto","tipo","bracket"],
-        keep=False
-    )]
-
-# -----------------------------
 # SIDEBAR
 # -----------------------------
 
@@ -201,47 +191,28 @@ def mostrar_tabla(data):
     data = data.loc[~data.isna().all(axis=1)]
     data = data.loc[:, ~data.isna().all()]
 
-    duplicados = obtener_duplicados(data)
-
-    # 🔴 resaltar duplicados
-    def highlight(row):
-        if row.name in duplicados.index:
-            return ['background-color: #ffcccc'] * len(row)
-        return [''] * len(row)
-
-    st.dataframe(data.style.apply(highlight, axis=1), use_container_width=True)
-
     editado = st.data_editor(data, use_container_width=True)
 
-    # 🔧 sección duplicados
-    if not duplicados.empty:
-
-        st.subheader("🔴 Duplicados detectados")
-
-        duplicados_edit = st.data_editor(duplicados, use_container_width=True)
-
-        if st.button("💾 Guardar corrección duplicados"):
-
-            base_actual = normalizar_columnas(pd.read_excel(archivo_base))
-
-            base_actual = base_actual.drop_duplicates(
-                subset=["id_cuenta","producto","tipo","bracket"],
-                keep=False
-            )
-
-            base_actual = pd.concat([base_actual, duplicados_edit])
-
-            base_actual.to_excel(archivo_base, index=False)
-
-            st.success("Duplicados corregidos")
-            st.rerun()
-
-    # 💾 guardar cambios normales
     if st.button("💾 Guardar cambios"):
 
-        editado.to_excel(archivo_base, index=False)
+        base_actual = normalizar_columnas(pd.read_excel(archivo_base))
 
-        st.success("Cambios guardados")
+        for _, fila in editado.iterrows():
+
+            filtro = (
+                (base_actual["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
+                (base_actual["producto"] == fila["producto"]) &
+                (base_actual["tipo"] == fila["tipo"]) &
+                (base_actual["bracket"].astype(str) == str(fila["bracket"]))
+            )
+
+            if filtro.any():
+                base_actual.loc[filtro, :] = fila
+            else:
+                base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
+
+        base_actual.to_excel(archivo_base, index=False)
+        st.success("Guardado correctamente")
 
 # -----------------------------
 # VISTAS
