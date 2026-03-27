@@ -9,7 +9,7 @@ archivo_base = "base_tarifas_guardada.xlsx"
 archivo_historial = "historial_tarifas.xlsx"
 
 # -----------------------------
-# 🔥 NORMALIZADOR INTELIGENTE
+# NORMALIZADOR INTELIGENTE
 # -----------------------------
 
 def normalizar_columnas(df):
@@ -17,21 +17,17 @@ def normalizar_columnas(df):
     df.columns = df.columns.str.strip().str.lower()
 
     mapeo = {
-        "producto": ["producto","product","prod"],
-        "tipo": ["tipo","type"],
-        "bracket": ["bracket","rango"],
-        "id_cuenta": ["id_cuenta","id cuenta","cuenta"],
-        "cliente": ["cliente","client","nombre"],
-        "ruc": ["ruc"],
-        "comision_variable": ["comision_variable","comision variable","fee","fee_variable"],
-        "comision_fija": ["comision_fija","comision fija"],
-        "comision_minima_pen": ["comision_minima_pen","minima_pen","min_pen"]
+        "producto": ["producto","product"],
+        "tipo": ["tipo"],
+        "bracket": ["bracket"],
+        "id_cuenta": ["id_cuenta","id cuenta"],
+        "cliente": ["cliente"],
+        "comision_variable": ["comision_variable","fee"],
+        "comision_fija": ["comision_fija"]
     }
 
-    columnas_actuales = df.columns.tolist()
-
     for col_final, posibles in mapeo.items():
-        for col in columnas_actuales:
+        for col in df.columns:
             if col in posibles:
                 df.rename(columns={col: col_final}, inplace=True)
 
@@ -48,7 +44,7 @@ USERS = {
 }
 
 def check_login():
-    st.title("🔐 Acceso al Sistema Kashio")
+    st.title("🔐 Acceso")
 
     user = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
@@ -56,28 +52,19 @@ def check_login():
     if st.button("Ingresar"):
         if user in USERS and USERS[user] == password:
             st.session_state["auth"] = True
-            st.session_state["usuario"] = user
         else:
-            st.error("❌ Credenciales incorrectas")
+            st.error("Error")
 
 if "auth" not in st.session_state or not st.session_state["auth"]:
     check_login()
     st.stop()
 
 # -----------------------------
-# HEADER
-# -----------------------------
-
-st.title("💖 Sistema de Control de Facturación Kashio")
-st.subheader(f"Bienvenida {st.session_state['usuario']} 👋")
-
-# -----------------------------
-# CARGA BASE
+# CARGA
 # -----------------------------
 
 if os.path.exists(archivo_base):
-    base_guardada = pd.read_excel(archivo_base)
-    base_guardada = normalizar_columnas(base_guardada)
+    base_guardada = normalizar_columnas(pd.read_excel(archivo_base))
 else:
     base_guardada = pd.DataFrame()
 
@@ -85,93 +72,76 @@ if os.path.exists(archivo_historial):
     historial = pd.read_excel(archivo_historial)
 else:
     historial = pd.DataFrame(columns=[
-        "fecha","id_cuenta","cliente","producto","tipo","bracket",
-        "valor_anterior","valor_nuevo"
+        "fecha","cliente","producto","tipo","bracket","valor_anterior","valor_nuevo"
     ])
 
 # -----------------------------
 # UPLOAD
 # -----------------------------
 
-archivo = st.file_uploader("Sube tu base tarifaria", type=["xlsx","csv"])
+archivo = st.file_uploader("Sube base", type=["xlsx","csv"])
 
 if archivo is not None:
 
-    if archivo.name.endswith(".csv"):
-        df_nuevo = pd.read_csv(archivo)
-    else:
-        df_nuevo = pd.read_excel(archivo)
-
+    df_nuevo = pd.read_excel(archivo)
     df_nuevo = normalizar_columnas(df_nuevo)
 
-    if st.button("🧹 LIMPIAR BASE COMPLETA"):
-        pd.DataFrame().to_excel(archivo_base, index=False)
-        historial = historial.iloc[0:0]
-        historial.to_excel(archivo_historial, index=False)
-        st.success("Base limpiada")
-        st.rerun()
-
-    if st.button("📥 Cargar esta como nueva base"):
+    if st.button("Reemplazar base"):
         df_nuevo.to_excel(archivo_base, index=False)
-        st.success("Nueva base cargada")
+        st.success("Base cargada")
         st.rerun()
 
 # -----------------------------
-# FORMATO VISUAL
+# ALERTAS
 # -----------------------------
 
-def formatear_para_mostrar(df):
+def generar_alertas(df):
 
-    df = df.copy()
-
-    def safe_percent(x):
-        try:
-            if isinstance(x, str) and "%" in x:
-                return x
-            if pd.notnull(x):
-                return f"{float(x)*100:.2f}%"
-        except:
-            return x
-        return x
-
-    def safe_money(x):
-        try:
-            if isinstance(x, str):
-                return x
-            if pd.notnull(x):
-                return f"S/ {float(x):.2f}"
-        except:
-            return x
-        return x
+    alertas = []
 
     if "comision_variable" in df.columns:
-        df["comision_variable"] = df["comision_variable"].apply(safe_percent)
 
-    if "comision_fija" in df.columns:
-        df["comision_fija"] = df["comision_fija"].apply(safe_money)
+        def limpiar(x):
+            try:
+                if isinstance(x, str):
+                    x = x.replace("%","")
+                return float(x)
+            except:
+                return None
 
-    if "comision_minima_pen" in df.columns:
-        df["comision_minima_pen"] = df["comision_minima_pen"].apply(safe_money)
+        df["fee"] = df["comision_variable"].apply(limpiar)
 
-    return df
+        if (df["fee"] == 0).any():
+            alertas.append("🔴 Hay comisiones en 0")
+
+        if (df["fee"] > 5).any():
+            alertas.append("⚠️ Hay comisiones muy altas")
+
+    if df.duplicated(subset=["id_cuenta","producto","tipo","bracket"]).any():
+        alertas.append("⚠️ Hay duplicados")
+
+    return alertas
+
+# -----------------------------
+# DASHBOARD
+# -----------------------------
+
+def limpiar_num(x):
+    try:
+        if isinstance(x, str):
+            x = x.replace("%","").replace("S/","")
+        return float(x)
+    except:
+        return None
 
 # -----------------------------
 # SIDEBAR
 # -----------------------------
 
-st.sidebar.header("🔎 Buscar cliente")
-
-if st.sidebar.button("Cerrar sesión"):
-    st.session_state["auth"] = False
-    st.rerun()
-
-buscar_id = st.sidebar.text_input("Buscar por ID CUENTA")
-buscar_cliente = st.sidebar.text_input("Buscar por nombre")
+buscar_id = st.sidebar.text_input("Buscar ID")
+buscar_cliente = st.sidebar.text_input("Buscar cliente")
 
 df = base_guardada.copy()
-
-if "producto" in df.columns:
-    df["producto"] = df["producto"].astype(str).str.upper().str.strip()
 
 if buscar_id:
     df = df[df["id_cuenta"].astype(str).str.contains(buscar_id)]
@@ -180,26 +150,21 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# NAVEGACIÓN
+# NAV
 # -----------------------------
 
 if "pagina" not in st.session_state:
     st.session_state.pagina = "inicio"
 
-col1,col2,col3,col4,col5,col6,col7 = st.columns(7)
+col1,col2,col3,col4 = st.columns(4)
 
 if col1.button("Dashboard"): st.session_state.pagina="inicio"
 if col2.button("Payin"): st.session_state.pagina="payin"
 if col3.button("Payout"): st.session_state.pagina="payout"
-if col4.button("PAAS"): st.session_state.pagina="paas"
-if col5.button("Licencias"): st.session_state.pagina="licencias"
-if col6.button("Interconexión"): st.session_state.pagina="interconexion"
-if col7.button("Historial"): st.session_state.pagina="historial"
-
-st.divider()
+if col4.button("Historial"): st.session_state.pagina="historial"
 
 # -----------------------------
-# TABLA LIMPIA
+# TABLA EDITABLE
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -211,31 +176,79 @@ def mostrar_tabla(data):
     data = data.loc[~data.isna().all(axis=1)]
     data = data.loc[:, ~data.isna().all()]
 
-    data_display = formatear_para_mostrar(data)
+    editado = st.data_editor(data, use_container_width=True)
 
-    st.data_editor(data_display, use_container_width=True)
+    if st.button("Guardar cambios"):
+
+        base_actual = pd.read_excel(archivo_base)
+        base_actual = normalizar_columnas(base_actual)
+
+        for _, fila in editado.iterrows():
+
+            filtro = (
+                (base_actual["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
+                (base_actual["producto"] == fila["producto"]) &
+                (base_actual["tipo"] == fila["tipo"]) &
+                (base_actual["bracket"].astype(str) == str(fila["bracket"]))
+            )
+
+            if filtro.any():
+                for col in base_actual.columns:
+                    if col in fila:
+                        viejo = base_actual.loc[filtro, col].iloc[0]
+                        nuevo = fila[col]
+
+                        if str(viejo) != str(nuevo):
+                            historial.loc[len(historial)] = {
+                                "fecha": datetime.datetime.now(),
+                                "cliente": fila.get("cliente",""),
+                                "producto": fila["producto"],
+                                "tipo": fila["tipo"],
+                                "bracket": fila["bracket"],
+                                "valor_anterior": viejo,
+                                "valor_nuevo": nuevo
+                            }
+
+                            base_actual.loc[filtro, col] = nuevo
+            else:
+                base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
+
+        base_actual.to_excel(archivo_base, index=False)
+        historial.to_excel(archivo_historial, index=False)
+
+        st.success("Guardado correctamente")
 
 # -----------------------------
 # VISTAS
 # -----------------------------
 
 if st.session_state.pagina == "inicio":
-    st.dataframe(df)
+
+    st.header("Dashboard")
+
+    df_dash = base_guardada.copy()
+
+    if "comision_variable" in df_dash.columns:
+        df_dash["fee"] = df_dash["comision_variable"].apply(limpiar_num)
+
+    col1,col2,col3 = st.columns(3)
+
+    col1.metric("Clientes", df_dash["cliente"].nunique())
+    col2.metric("Registros", len(df_dash))
+    col3.metric("Fee promedio", f"{df_dash['fee'].mean():.2f}%" if "fee" in df_dash else "0")
+
+    st.subheader("Alertas")
+
+    alertas = generar_alertas(df_dash)
+
+    for a in alertas:
+        st.warning(a)
 
 elif st.session_state.pagina == "payin":
     mostrar_tabla(df[df["producto"]=="PAYIN"])
 
 elif st.session_state.pagina == "payout":
     mostrar_tabla(df[df["producto"]=="PAYOUT"])
-
-elif st.session_state.pagina == "paas":
-    mostrar_tabla(df[df["producto"].isin(["PAAS","PASS"])])
-
-elif st.session_state.pagina == "licencias":
-    mostrar_tabla(df[df["producto"]=="LICENCIA"])
-
-elif st.session_state.pagina == "interconexion":
-    mostrar_tabla(df[df["producto"]=="INTERCONEXION"])
 
 elif st.session_state.pagina == "historial":
     st.dataframe(historial)
