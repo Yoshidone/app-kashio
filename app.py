@@ -2,9 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
-import requests
-import base64
-from io import BytesIO
 
 st.set_page_config(page_title="Sistema de Control de Facturación Kashio", layout="wide")
 
@@ -12,47 +9,9 @@ archivo_base = "base_tarifas_guardada.xlsx"
 archivo_historial = "historial_tarifas.xlsx"
 
 # -----------------------------
-# 🔐 GITHUB CONFIG
-# -----------------------------
-GITHUB_TOKEN = st.secrets["TOKEN_GITHUB"]
-REPO = "Yoshidone/app-kashio"
-
-def leer_excel_github(file_path):
-    url = f"https://api.github.com/repos/{REPO}/contents/{file_path}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-
-    r = requests.get(url, headers=headers)
-
-    if r.status_code == 200:
-        content = base64.b64decode(r.json()["content"])
-        return pd.read_excel(BytesIO(content))
-    return None
-
-def subir_excel_github(df, file_path, mensaje):
-    url = f"https://api.github.com/repos/{REPO}/contents/{file_path}"
-
-    buffer = BytesIO()
-    df.to_excel(buffer, index=False)
-    content = base64.b64encode(buffer.getvalue()).decode()
-
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    r = requests.get(url, headers=headers)
-
-    sha = r.json()["sha"] if r.status_code == 200 else None
-
-    data = {
-        "message": mensaje,
-        "content": content
-    }
-
-    if sha:
-        data["sha"] = sha
-
-    requests.put(url, json=data, headers=headers)
-
-# -----------------------------
 # NORMALIZADOR
 # -----------------------------
+
 def normalizar_columnas(df):
     df.columns = df.columns.str.strip().str.lower()
 
@@ -78,6 +37,7 @@ def normalizar_columnas(df):
 # -----------------------------
 # LOGIN
 # -----------------------------
+
 USERS = {
     "yoshira": "1234",
     "conta": "kashio2026",
@@ -104,17 +64,15 @@ if "auth" not in st.session_state or not st.session_state["auth"]:
 # -----------------------------
 # HEADER
 # -----------------------------
+
 st.title("💖 Sistema de Control de Facturación Kashio")
 st.subheader(f"Bienvenida {st.session_state['usuario']} 👋")
 
 # -----------------------------
-# CARGA BASE (LOCAL + GITHUB)
+# CARGA BASE
 # -----------------------------
-base_github = leer_excel_github(archivo_base)
 
-if base_github is not None:
-    base_guardada = normalizar_columnas(base_github)
-elif os.path.exists(archivo_base):
+if os.path.exists(archivo_base):
     base_guardada = normalizar_columnas(pd.read_excel(archivo_base))
 else:
     base_guardada = pd.DataFrame()
@@ -130,6 +88,7 @@ else:
 # -----------------------------
 # UPLOAD
 # -----------------------------
+
 archivo = st.file_uploader("📂 Sube tu base tarifaria", type=["xlsx","csv"])
 
 if archivo is not None:
@@ -142,23 +101,18 @@ if archivo is not None:
     if colA.button("🧹 Limpiar base completa"):
         pd.DataFrame().to_excel(archivo_base, index=False)
         historial.iloc[0:0].to_excel(archivo_historial, index=False)
-
-        subir_excel_github(pd.DataFrame(), archivo_base, "limpiar base")
-        subir_excel_github(pd.DataFrame(), archivo_historial, "limpiar historial")
-
         st.success("Base limpiada")
         st.rerun()
 
     if colB.button("📥 Cargar como nueva base"):
         df_nuevo.to_excel(archivo_base, index=False)
-        subir_excel_github(df_nuevo, archivo_base, "nueva base subida")
-
-        st.success("Base cargada 🚀")
+        st.success("Base cargada")
         st.rerun()
 
 # -----------------------------
 # ALERTAS
 # -----------------------------
+
 def generar_alertas(df):
 
     alertas = []
@@ -188,6 +142,7 @@ def generar_alertas(df):
 # -----------------------------
 # SIDEBAR
 # -----------------------------
+
 st.sidebar.header("🔎 Buscar")
 
 buscar_id = st.sidebar.text_input("ID Cuenta")
@@ -205,8 +160,9 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# NAVEGACIÓN
+# NAVEGACIÓN (TU ORIGINAL)
 # -----------------------------
+
 if "pagina" not in st.session_state:
     st.session_state.pagina = "inicio"
 
@@ -225,6 +181,7 @@ st.divider()
 # -----------------------------
 # TABLA EDITABLE
 # -----------------------------
+
 def mostrar_tabla(data):
 
     if data.empty:
@@ -255,15 +212,12 @@ def mostrar_tabla(data):
                 base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
 
         base_actual.to_excel(archivo_base, index=False)
-
-        # 🔥 guardar en GitHub
-        subir_excel_github(base_actual, archivo_base, "update desde app")
-
-        st.success("Guardado en local + GitHub 🚀")
+        st.success("Guardado correctamente")
 
 # -----------------------------
 # VISTAS
 # -----------------------------
+
 if st.session_state.pagina == "inicio":
 
     st.header("📊 Dashboard")
