@@ -179,7 +179,7 @@ if col7.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA EDITABLE
+# TABLA EDITABLE (MEJORADA SIN ROMPER)
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -191,11 +191,25 @@ def mostrar_tabla(data):
     data = data.loc[~data.isna().all(axis=1)]
     data = data.loc[:, ~data.isna().all()]
 
+    # 🔴 duplicados
+    duplicados = data.duplicated(
+        subset=["id_cuenta","producto","tipo","bracket"],
+        keep=False
+    )
+
+    def highlight(row):
+        if duplicados.loc[row.name]:
+            return ['background-color: #ffcccc'] * len(row)
+        return [''] * len(row)
+
+    st.dataframe(data.style.apply(highlight, axis=1), use_container_width=True)
+
     editado = st.data_editor(data, use_container_width=True)
 
     if st.button("💾 Guardar cambios"):
 
         base_actual = normalizar_columnas(pd.read_excel(archivo_base))
+        cambios = []
 
         for _, fila in editado.iterrows():
 
@@ -207,12 +221,45 @@ def mostrar_tabla(data):
             )
 
             if filtro.any():
+
+                fila_original = base_actual.loc[filtro].iloc[0]
+
+                for col in base_actual.columns:
+                    if col in fila:
+
+                        val_ant = fila_original[col]
+                        val_new = fila[col]
+
+                        if str(val_ant) != str(val_new):
+
+                            cambios.append({
+                                "fecha": datetime.datetime.now(),
+                                "id_cuenta": fila["id_cuenta"],
+                                "cliente": fila.get("cliente",""),
+                                "producto": fila["producto"],
+                                "tipo": fila["tipo"],
+                                "bracket": fila["bracket"],
+                                "valor_anterior": f"{col}: {val_ant}",
+                                "valor_nuevo": f"{col}: {val_new}"
+                            })
+
                 base_actual.loc[filtro, :] = fila
+
             else:
                 base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
 
         base_actual.to_excel(archivo_base, index=False)
-        st.success("Guardado correctamente")
+
+        if cambios:
+            if os.path.exists(archivo_historial):
+                historial_actual = pd.read_excel(archivo_historial)
+            else:
+                historial_actual = pd.DataFrame()
+
+            historial_actual = pd.concat([historial_actual, pd.DataFrame(cambios)])
+            historial_actual.to_excel(archivo_historial, index=False)
+
+        st.success("Guardado correctamente con historial")
 
 # -----------------------------
 # VISTAS
