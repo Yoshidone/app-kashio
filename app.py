@@ -12,7 +12,7 @@ archivo_base = "base_tarifas_guardada.xlsx"
 archivo_historial = "historial_tarifas.xlsx"
 
 # -----------------------------
-# 🔐 GITHUB CONFIG
+# 🔐 GITHUB
 # -----------------------------
 GITHUB_TOKEN = st.secrets["TOKEN_GITHUB"]
 REPO = "Yoshidone/app-kashio"
@@ -106,29 +106,6 @@ else:
     historial = pd.DataFrame()
 
 # -----------------------------
-# UPLOAD
-# -----------------------------
-archivo = st.file_uploader("📂 Sube tu base tarifaria", type=["xlsx","csv"])
-
-if archivo is not None:
-
-    df_nuevo = normalizar_columnas(pd.read_excel(archivo))
-
-    colA, colB = st.columns(2)
-
-    if colA.button("🧹 Limpiar base completa"):
-        pd.DataFrame().to_excel(archivo_base, index=False)
-        subir_excel_github(pd.DataFrame(), archivo_base, "limpiar base")
-        st.success("Base limpiada")
-        st.rerun()
-
-    if colB.button("📥 Cargar como nueva base"):
-        df_nuevo.to_excel(archivo_base, index=False)
-        subir_excel_github(df_nuevo, archivo_base, "nueva base")
-        st.success("Base cargada")
-        st.rerun()
-
-# -----------------------------
 # BUSCADOR PRO
 # -----------------------------
 st.sidebar.header("🔎 Buscar")
@@ -151,25 +128,7 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# NAVEGACIÓN
-# -----------------------------
-if "pagina" not in st.session_state:
-    st.session_state.pagina = "inicio"
-
-col1,col2,col3,col4,col5,col6,col7 = st.columns(7)
-
-if col1.button("Dashboard"): st.session_state.pagina="inicio"
-if col2.button("Payin"): st.session_state.pagina="payin"
-if col3.button("Payout"): st.session_state.pagina="payout"
-if col4.button("PAAS"): st.session_state.pagina="paas"
-if col5.button("Licencias"): st.session_state.pagina="licencias"
-if col6.button("Interconexión"): st.session_state.pagina="interconexion"
-if col7.button("Historial"): st.session_state.pagina="historial"
-
-st.divider()
-
-# -----------------------------
-# TABLA EDITABLE + HISTORIAL
+# TABLA CON FORMATO %
 # -----------------------------
 def mostrar_tabla(data):
 
@@ -177,7 +136,18 @@ def mostrar_tabla(data):
         st.warning("No hay datos")
         return
 
-    editado = st.data_editor(data, use_container_width=True)
+    data = data.dropna(how="all")
+    data = data.dropna(axis=1, how="all")
+
+    # 🔥 FORMATO BONITO (como tu Excel)
+    data_mostrar = data.copy()
+
+    if "comision_variable" in data_mostrar.columns:
+        data_mostrar["comision_variable"] = data_mostrar["comision_variable"].apply(
+            lambda x: f"{float(x)*100:.2f}%" if pd.notnull(x) and str(x).replace('.','',1).isdigit() else x
+        )
+
+    editado = st.data_editor(data_mostrar, use_container_width=True)
 
     if st.button("💾 Guardar cambios"):
 
@@ -185,6 +155,15 @@ def mostrar_tabla(data):
         cambios = []
 
         for _, fila in editado.iterrows():
+
+            # 🔥 convertir de % a decimal para guardar
+            fila = fila.copy()
+            if "comision_variable" in fila:
+                try:
+                    if "%" in str(fila["comision_variable"]):
+                        fila["comision_variable"] = float(str(fila["comision_variable"]).replace("%",""))/100
+                except:
+                    pass
 
             filtro = (
                 (base_actual["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
@@ -226,29 +205,29 @@ def mostrar_tabla(data):
             hist_df.to_excel(archivo_historial, index=False)
             subir_excel_github(hist_df, archivo_historial, "update historial")
 
-        st.success("Guardado con historial + GitHub 🚀")
+        st.success("Guardado con formato + historial + GitHub 🚀")
 
 # -----------------------------
-# DASHBOARD
+# VISTAS
 # -----------------------------
+if "pagina" not in st.session_state:
+    st.session_state.pagina = "inicio"
+
+col1,col2,col3,col4,col5,col6,col7 = st.columns(7)
+
+if col1.button("Dashboard"): st.session_state.pagina="inicio"
+if col2.button("Payin"): st.session_state.pagina="payin"
+if col3.button("Payout"): st.session_state.pagina="payout"
+if col4.button("PAAS"): st.session_state.pagina="paas"
+if col5.button("Licencias"): st.session_state.pagina="licencias"
+if col6.button("Interconexión"): st.session_state.pagina="interconexion"
+if col7.button("Historial"): st.session_state.pagina="historial"
+
+st.divider()
+
 if st.session_state.pagina == "inicio":
-
     st.header("📊 Dashboard")
-
-    col1,col2,col3 = st.columns(3)
-
-    col1.metric("Clientes", df["cliente"].nunique())
-    col2.metric("Registros", len(df))
-    col3.metric("Productos", df["producto"].nunique())
-
-    st.subheader("📊 Productos")
-    if "producto" in df.columns:
-        st.bar_chart(df["producto"].value_counts())
-
-    if "comision_variable" in df.columns:
-        df["fee"] = pd.to_numeric(df["comision_variable"], errors="coerce")
-        st.subheader("📈 Comisiones")
-        st.line_chart(df["fee"])
+    st.bar_chart(df["producto"].value_counts())
 
 elif st.session_state.pagina == "payin":
     mostrar_tabla(df[df["producto"]=="PAYIN"])
