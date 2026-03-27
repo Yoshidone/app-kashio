@@ -9,7 +9,7 @@ archivo_base = "base_tarifas_guardada.xlsx"
 archivo_historial = "historial_tarifas.xlsx"
 
 # -----------------------------
-# 🔥 NORMALIZADOR INTELIGENTE
+# NORMALIZADOR
 # -----------------------------
 
 def normalizar_columnas(df):
@@ -98,48 +98,16 @@ if archivo is not None:
 
     colA, colB = st.columns(2)
 
-    if colA.button("🧹 Limpiar base"):
+    if colA.button("🧹 Limpiar base completa"):
         pd.DataFrame().to_excel(archivo_base, index=False)
         historial.iloc[0:0].to_excel(archivo_historial, index=False)
         st.success("Base limpiada")
         st.rerun()
 
-    if colB.button("📥 Usar esta base"):
+    if colB.button("📥 Cargar como nueva base"):
         df_nuevo.to_excel(archivo_base, index=False)
         st.success("Base cargada")
         st.rerun()
-
-# -----------------------------
-# FORMATO VISUAL
-# -----------------------------
-
-def formatear_para_mostrar(df):
-
-    df = df.copy()
-
-    def percent(x):
-        try:
-            if isinstance(x, str) and "%" in x:
-                return x
-            return f"{float(x)*100:.2f}%" if pd.notnull(x) else x
-        except:
-            return x
-
-    def money(x):
-        try:
-            if isinstance(x, str):
-                return x
-            return f"S/ {float(x):.2f}" if pd.notnull(x) else x
-        except:
-            return x
-
-    if "comision_variable" in df.columns:
-        df["comision_variable"] = df["comision_variable"].apply(percent)
-
-    if "comision_fija" in df.columns:
-        df["comision_fija"] = df["comision_fija"].apply(money)
-
-    return df
 
 # -----------------------------
 # ALERTAS
@@ -167,7 +135,7 @@ def generar_alertas(df):
             alertas.append("⚠️ Comisiones muy altas")
 
     if df.duplicated(subset=["id_cuenta","producto","tipo","bracket"]).any():
-        alertas.append("⚠️ Duplicados detectados")
+        alertas.append("⚠️ Hay duplicados")
 
     return alertas
 
@@ -192,19 +160,21 @@ if buscar_cliente:
     df = df[df["cliente"].astype(str).str.contains(buscar_cliente, case=False)]
 
 # -----------------------------
-# NAV
+# NAVEGACIÓN (TU ORIGINAL)
 # -----------------------------
 
 if "pagina" not in st.session_state:
     st.session_state.pagina = "inicio"
 
-menu = st.columns(5)
+col1,col2,col3,col4,col5,col6,col7 = st.columns(7)
 
-if menu[0].button("📊 Dashboard"): st.session_state.pagina="inicio"
-if menu[1].button("💳 Payin"): st.session_state.pagina="payin"
-if menu[2].button("💸 Payout"): st.session_state.pagina="payout"
-if menu[3].button("⚙️ Otros"): st.session_state.pagina="otros"
-if menu[4].button("📜 Historial"): st.session_state.pagina="historial"
+if col1.button("Dashboard"): st.session_state.pagina="inicio"
+if col2.button("Payin"): st.session_state.pagina="payin"
+if col3.button("Payout"): st.session_state.pagina="payout"
+if col4.button("PAAS"): st.session_state.pagina="paas"
+if col5.button("Licencias"): st.session_state.pagina="licencias"
+if col6.button("Interconexión"): st.session_state.pagina="interconexion"
+if col7.button("Historial"): st.session_state.pagina="historial"
 
 st.divider()
 
@@ -274,8 +244,14 @@ elif st.session_state.pagina == "payin":
 elif st.session_state.pagina == "payout":
     mostrar_tabla(df[df["producto"]=="PAYOUT"])
 
-elif st.session_state.pagina == "otros":
-    mostrar_tabla(df[~df["producto"].isin(["PAYIN","PAYOUT"])])
+elif st.session_state.pagina == "paas":
+    mostrar_tabla(df[df["producto"].isin(["PAAS","PASS"])])
+
+elif st.session_state.pagina == "licencias":
+    mostrar_tabla(df[df["producto"]=="LICENCIA"])
+
+elif st.session_state.pagina == "interconexion":
+    mostrar_tabla(df[df["producto"]=="INTERCONEXION"])
 
 elif st.session_state.pagina == "historial":
     st.dataframe(historial)
