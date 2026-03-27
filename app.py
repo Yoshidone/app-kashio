@@ -9,6 +9,35 @@ archivo_base = "base_tarifas_guardada.xlsx"
 archivo_historial = "historial_tarifas.xlsx"
 
 # -----------------------------
+# 🔥 NORMALIZADOR INTELIGENTE
+# -----------------------------
+
+def normalizar_columnas(df):
+
+    df.columns = df.columns.str.strip().str.lower()
+
+    mapeo = {
+        "producto": ["producto","product","prod"],
+        "tipo": ["tipo","type"],
+        "bracket": ["bracket","rango"],
+        "id_cuenta": ["id_cuenta","id cuenta","cuenta"],
+        "cliente": ["cliente","client","nombre"],
+        "ruc": ["ruc"],
+        "comision_variable": ["comision_variable","comision variable","fee","fee_variable"],
+        "comision_fija": ["comision_fija","comision fija"],
+        "comision_minima_pen": ["comision_minima_pen","minima_pen","min_pen"]
+    }
+
+    columnas_actuales = df.columns.tolist()
+
+    for col_final, posibles in mapeo.items():
+        for col in columnas_actuales:
+            if col in posibles:
+                df.rename(columns={col: col_final}, inplace=True)
+
+    return df
+
+# -----------------------------
 # LOGIN
 # -----------------------------
 
@@ -48,6 +77,7 @@ st.subheader(f"Bienvenida {st.session_state['usuario']} 👋")
 
 if os.path.exists(archivo_base):
     base_guardada = pd.read_excel(archivo_base)
+    base_guardada = normalizar_columnas(base_guardada)
 else:
     base_guardada = pd.DataFrame()
 
@@ -72,7 +102,7 @@ if archivo is not None:
     else:
         df_nuevo = pd.read_excel(archivo)
 
-    df_nuevo.columns = df_nuevo.columns.str.strip().str.lower()
+    df_nuevo = normalizar_columnas(df_nuevo)
 
     if st.button("🧹 LIMPIAR BASE COMPLETA"):
         pd.DataFrame().to_excel(archivo_base, index=False)
@@ -104,12 +134,12 @@ def formatear_para_mostrar(df):
             return x
         return x
 
-    def safe_money(x, simbolo="S/"):
+    def safe_money(x):
         try:
             if isinstance(x, str):
                 return x
             if pd.notnull(x):
-                return f"{simbolo} {float(x):.2f}"
+                return f"S/ {float(x):.2f}"
         except:
             return x
         return x
@@ -118,10 +148,10 @@ def formatear_para_mostrar(df):
         df["comision_variable"] = df["comision_variable"].apply(safe_percent)
 
     if "comision_fija" in df.columns:
-        df["comision_fija"] = df["comision_fija"].apply(lambda x: safe_money(x, "S/"))
+        df["comision_fija"] = df["comision_fija"].apply(safe_money)
 
     if "comision_minima_pen" in df.columns:
-        df["comision_minima_pen"] = df["comision_minima_pen"].apply(lambda x: safe_money(x, "S/"))
+        df["comision_minima_pen"] = df["comision_minima_pen"].apply(safe_money)
 
     return df
 
@@ -139,6 +169,9 @@ buscar_id = st.sidebar.text_input("Buscar por ID CUENTA")
 buscar_cliente = st.sidebar.text_input("Buscar por nombre")
 
 df = base_guardada.copy()
+
+if "producto" in df.columns:
+    df["producto"] = df["producto"].astype(str).str.upper().str.strip()
 
 if buscar_id:
     df = df[df["id_cuenta"].astype(str).str.contains(buscar_id)]
@@ -166,7 +199,7 @@ if col7.button("Historial"): st.session_state.pagina="historial"
 st.divider()
 
 # -----------------------------
-# TABLA LIMPIA (🔥 FIX VISUAL)
+# TABLA LIMPIA
 # -----------------------------
 
 def mostrar_tabla(data):
@@ -175,86 +208,19 @@ def mostrar_tabla(data):
         st.warning("No hay datos")
         return
 
-    data = data.copy()
-
-    # 🔥 eliminar filas vacías
     data = data.loc[~data.isna().all(axis=1)]
-
-    # 🔥 eliminar columnas vacías (LO QUE QUERÍAS)
     data = data.loc[:, ~data.isna().all()]
 
     data_display = formatear_para_mostrar(data)
 
-    editado = st.data_editor(data_display, use_container_width=True)
-
-    if st.button("Guardar cambios"):
-
-        base_actual = pd.read_excel(archivo_base)
-
-        def limpiar(x):
-            if isinstance(x, str):
-                return x.replace("%","").replace("S/","").strip()
-            return x
-
-        editado = editado.applymap(limpiar)
-
-        for _, fila in editado.iterrows():
-
-            filtro = (
-                (base_actual["id_cuenta"].astype(str) == str(fila["id_cuenta"])) &
-                (base_actual["producto"] == fila["producto"]) &
-                (base_actual["tipo"] == fila["tipo"]) &
-                (base_actual["bracket"].astype(str) == str(fila["bracket"]))
-            )
-
-            if filtro.any():
-                for col in base_actual.columns:
-                    if col in fila:
-                        base_actual.loc[filtro, col] = fila[col]
-            else:
-                base_actual = pd.concat([base_actual, pd.DataFrame([fila])])
-
-        base_actual.to_excel(archivo_base, index=False)
-        historial.to_excel(archivo_historial, index=False)
-
-        st.success("Cambios guardados")
-
-# -----------------------------
-# DASHBOARD
-# -----------------------------
-
-def limpiar_num(x):
-    try:
-        if isinstance(x, str):
-            x = x.replace("%","").replace("S/","").replace("$","").strip()
-        return float(x)
-    except:
-        return None
+    st.data_editor(data_display, use_container_width=True)
 
 # -----------------------------
 # VISTAS
 # -----------------------------
 
 if st.session_state.pagina == "inicio":
-
-    st.header("📊 Dashboard")
-
-    df_dash = base_guardada.copy()
-
-    if "comision_variable" in df_dash.columns:
-        df_dash["comision_variable_num"] = df_dash["comision_variable"].apply(limpiar_num)
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("Clientes", df_dash["cliente"].nunique())
-    col2.metric("Registros", len(df_dash))
-    col3.metric("Promedio Fee", f"{df_dash['comision_variable_num'].mean():.2f}%" if "comision_variable_num" in df_dash else "0%")
-    col4.metric("Productos", df_dash["producto"].nunique())
-
-    st.divider()
-
-    st.subheader("Distribución por producto")
-    st.bar_chart(df_dash["producto"].value_counts())
+    st.dataframe(df)
 
 elif st.session_state.pagina == "payin":
     mostrar_tabla(df[df["producto"]=="PAYIN"])
@@ -272,4 +238,4 @@ elif st.session_state.pagina == "interconexion":
     mostrar_tabla(df[df["producto"]=="INTERCONEXION"])
 
 elif st.session_state.pagina == "historial":
-    st.dataframe(historial, use_container_width=True)
+    st.dataframe(historial)
