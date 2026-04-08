@@ -6,7 +6,7 @@ import requests
 import base64
 from io import BytesIO
 
-st.set_page_config(page_title="Sistema de Control de Facturación Kashio", layout="wide")
+st.set_page_config(page_title="Sistema Tarifario Kashio", layout="wide")
 
 archivo_base = "base_tarifas_guardada.xlsx"
 archivo_historial = "historial_tarifas.xlsx"
